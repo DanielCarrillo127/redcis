@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Light mode - Professional Healthcare + Web3 */
+  --background: oklch(0.98 0.001 247.858);
+  --foreground: oklch(0.2 0.01 246.816);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.01 246.816);
+  
+  /* Primary: Medical Blue #04579e (trust, professionalism) */
+  --primary: #04579e;
+  --primary-foreground: oklch(0.98 0 0);
+  
+  /* Secondary: Health Green #5cb243 (verification, success) */
+  --secondary: #5cb243;
+  --secondary-foreground: oklch(0.98 0 0);
+  
+  /* Accent: Blockchain Blue (Web3, future) */
+  --accent: #0373b5;
+  --accent-foreground: oklch(0.98 0 0);
+  
+  /* Destructive: Medical Red */
+  --destructive: #d32f2f;
+  --destructive-foreground: oklch(0.98 0 0);
+  
+  --muted: oklch(0.95 0.002 256.045);
+  --muted-foreground: oklch(0.45 0.02 247.839);
+  --border: oklch(0.93 0.003 247.858);
+  --input: oklch(0.98 0.001 247.858);
+  --ring: #04579e;
+  
+  --chart-1: #04579e;
+  --chart-2: #5cb243;
+  --chart-3: #0373b5;
+  --chart-4: #68a346;
+  --chart-5: #023d6e;
+  
+  --radius: 0.625rem;
+  
+  --sidebar: oklch(0.98 0.001 247.858);
+  --sidebar-foreground: oklch(0.2 0.01 246.816);
+  --sidebar-primary: #04579e;
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: #5cb243;
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.93 0.003 247.858);
+  --sidebar-ring: #04579e;
+}
+
+.dark {
+  /* Dark mode - Professional Healthcare + Web3 */
+  --background: oklch(0.12 0.01 246.816);
+  --foreground: oklch(0.95 0.002 256.045);
+  --card: oklch(0.18 0.01 246.816);
+  --card-foreground: oklch(0.95 0.002 256.045);
+  --popover: oklch(0.15 0.01 246.816);
+  --popover-foreground: oklch(0.95 0.002 256.045);
+  
+  /* Primary: Bright Medical Blue */
+  --primary: #4a9fd8;
+  --primary-foreground: oklch(0.12 0.01 246.816);
+  
+  /* Secondary: Bright Health Green */
+  --secondary: #7dd243;
+  --secondary-foreground: oklch(0.12 0.01 246.816);
+  
+  /* Accent: Bright Blockchain Blue */
+  --accent: #5db3f2;
+  --accent-foreground: oklch(0.12 0.01 246.816);
+  
+  /* Destructive: Medical Red */
+  --destructive: #ff6b6b;
+  --destructive-foreground: oklch(0.95 0.002 256.045);
+  
+  --muted: oklch(0.3 0.01 246.816);
+  --muted-foreground: oklch(0.65 0.05 247.839);
+  --border: oklch(0.25 0.01 246.816);
+  --input: oklch(0.18 0.01 246.816);
+  --ring: #4a9fd8;
+  
+  --chart-1: #4a9fd8;
+  --chart-2: #7dd243;
+  --chart-3: #5db3f2;
+  --chart-4: #9dd25f;
+  --chart-5: #3b7ab8;
+  
+  --radius: 0.625rem;
+  
+  --sidebar: oklch(0.15 0.01 246.816);
+  --sidebar-foreground: oklch(0.95 0.002 256.045);
+  --sidebar-primary: #4a9fd8;
+  --sidebar-primary-foreground: oklch(0.12 0.01 246.816);
+  --sidebar-accent: #7dd243;
+  --sidebar-accent-foreground: oklch(0.12 0.01 246.816);
+  --sidebar-border: oklch(0.25 0.01 246.816);
+  --sidebar-ring: #4a9fd8;
+}
+
+@theme inline {
+  --font-sans: 'Geist', 'Geist Fallback';
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

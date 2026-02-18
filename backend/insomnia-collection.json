@@ -1,0 +1,747 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-02-18T00:00:00.000Z",
+  "__export_source": "redcis-backend",
+  "resources": [
+    {
+      "_id": "env_redcis_base",
+      "_type": "environment",
+      "parentId": "wrk_redcis",
+      "name": "redcis - Local",
+      "data": {
+        "base_url": "http://localhost:3001",
+        "jwt_token": "",
+        "patient_wallet": "GABC1234567890EXAMPLEPATIENTWALLET000000000000000000000000",
+        "health_center_wallet": "GHEALTHCENTER1234567890EXAMPLEWALLET00000000000000000000000",
+        "admin_wallet": "GADMIN1234567890EXAMPLEWALLET000000000000000000000000000000",
+        "record_id": "64f1a2b3c4d5e6f7a8b9c0d1",
+        "patient_wallet_param": "GABC1234567890EXAMPLEPATIENTWALLET000000000000000000000000"
+      },
+      "dataPropertyOrder": {
+        "&": [
+          "base_url",
+          "jwt_token",
+          "patient_wallet",
+          "health_center_wallet",
+          "admin_wallet",
+          "record_id",
+          "patient_wallet_param"
+        ]
+      }
+    },
+    {
+      "_id": "wrk_redcis",
+      "_type": "workspace",
+      "name": "redcis Backend API",
+      "description": "Historia Clínica Descentralizada — API REST"
+    },
+    {
+      "_id": "fld_health",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "🩺 Health Check",
+      "description": "Estado del servidor"
+    },
+    {
+      "_id": "req_health_check",
+      "_type": "request",
+      "parentId": "fld_health",
+      "name": "Health Check",
+      "method": "GET",
+      "url": "{{ _.base_url }}/health",
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "fld_auth",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "🔐 Auth",
+      "description": "Autenticación Web3 con Freighter / Stellar"
+    },
+    {
+      "_id": "req_auth_nonce",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "1. Obtener Nonce",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/auth/nonce",
+      "description": "Genera el mensaje que el usuario debe firmar con Freighter.\nPaso 1 del flujo de autenticación Web3.\n\nFlujo completo:\n1. GET /nonce → obtener mensaje\n2. signMessage(message) con Freighter → obtener signature\n3. POST /verify → obtener JWT",
+      "parameters": [
+        {
+          "name": "wallet",
+          "value": "{{ _.patient_wallet }}",
+          "description": "Stellar public key del usuario (G...)"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_auth_verify",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "2. Verificar Firma y Obtener JWT",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/auth/verify",
+      "description": "Verifica la firma Ed25519 del wallet y emite un JWT.\nPaso 3 del flujo de autenticación.\n\nLa `signature` es la respuesta de `signMessage()` de Freighter (base64).",
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"wallet\": \"{{ _.patient_wallet }}\",\n  \"signature\": \"<BASE64_SIGNATURE_DE_FREIGHTER>\",\n  \"message\": \"Autenticación en redcis\\nWallet: {{ _.patient_wallet }}\\nNonce: <NONCE_DEL_PASO_1>\\nFecha: <FECHA_ISO>\"\n}"
+      }
+    },
+    {
+      "_id": "req_auth_me",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Obtener Perfil (me)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/auth/me",
+      "description": "Retorna el perfil del usuario autenticado a partir del JWT.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_auth_refresh",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Renovar JWT",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/auth/refresh",
+      "description": "Renueva el JWT del usuario autenticado sin necesidad de re-firmar.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "fld_identity",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "👤 Identity",
+      "description": "Registro de identidades: individuos y centros de salud"
+    },
+    {
+      "_id": "req_identity_register_individual",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Registrar Individuo (Paciente)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/identity/individual/register",
+      "description": "Registra al usuario autenticado como individuo (paciente).\nAsociado a su wallet del JWT.\nEl backend calcula SHA256(DNI + salt) internamente.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Juan Pérez García\",\n  \"dni\": \"12345678\",\n  \"email\": \"juan.perez@example.com\"\n}"
+      }
+    },
+    {
+      "_id": "req_identity_register_hc",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Registrar Centro de Salud (Admin)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/identity/health-center/register",
+      "description": "Registra un nuevo centro de salud.\nSolo el admin puede ejecutar este endpoint.\nRequiere JWT con role=admin.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"wallet\": \"{{ _.health_center_wallet }}\",\n  \"name\": \"Clínica Central Bogotá\",\n  \"nit\": \"900123456-1\",\n  \"country\": \"CO\",\n  \"email\": \"info@clinicacentral.com.co\"\n}"
+      }
+    },
+    {
+      "_id": "req_identity_search_dni",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Buscar Paciente por DNI (HC)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/identity/search",
+      "description": "Busca un paciente por su DNI en texto claro.\nSolo centros de salud (role=health_center) pueden ejecutarlo.\nEl backend compara SHA256(DNI + salt) internamente.",
+      "parameters": [
+        {
+          "name": "dni",
+          "value": "12345678",
+          "description": "DNI del paciente en texto claro"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_identity_profile_get",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Obtener Mi Perfil",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/identity/profile",
+      "description": "Retorna el perfil completo del usuario autenticado.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_identity_profile_put",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Actualizar Perfil",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/identity/profile",
+      "description": "Actualiza nombre o email del usuario autenticado.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Juan Pérez García (actualizado)\",\n  \"email\": \"nuevo.email@example.com\"\n}"
+      }
+    },
+    {
+      "_id": "req_identity_list_hc",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Listar Centros de Salud",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/identity/health-centers",
+      "description": "Lista todos los centros de salud activos del sistema.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_identity_user_by_wallet",
+      "_type": "request",
+      "parentId": "fld_identity",
+      "name": "Obtener Usuario por Wallet",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/identity/user/{{ _.patient_wallet_param }}",
+      "description": "Retorna los datos públicos de cualquier usuario dado su wallet Stellar.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "fld_records",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "📋 Records",
+      "description": "Gestión de registros clínicos"
+    },
+    {
+      "_id": "req_records_create_json",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Crear Registro Clínico (sin archivo)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/records",
+      "description": "Crea un registro clínico sin documento adjunto.\nEl hash se calcula a partir de la descripción + timestamp.\n\nrecordType: lab_result | diagnosis | prescription | procedure | imaging_report | vaccination | progress_note | self_reported | other\nsource: health_center | patient",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"patientWallet\": \"{{ _.patient_wallet }}\",\n  \"recordType\": \"diagnosis\",\n  \"source\": \"health_center\",\n  \"description\": \"Diagnóstico: Hipertensión arterial leve. Se recomienda control dietario y actividad física.\",\n  \"eventDate\": \"2026-02-18T10:30:00.000Z\",\n  \"details\": {\n    \"icd10\": \"I10\",\n    \"severity\": \"leve\",\n    \"systolicPressure\": 140,\n    \"diastolicPressure\": 90\n  }\n}"
+      }
+    },
+    {
+      "_id": "req_records_create_multipart",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Crear Registro Clínico (con archivo PDF/imagen)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/records",
+      "description": "Crea un registro clínico con documento adjunto.\nEl archivo se guarda en disco y se calcula su SHA256.\nContent-Type debe ser multipart/form-data.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "name": "patientWallet",
+            "value": "{{ _.patient_wallet }}",
+            "description": "Wallet del paciente (solo si emisor es HC)"
+          },
+          {
+            "name": "recordType",
+            "value": "lab_result",
+            "description": "lab_result | diagnosis | prescription | procedure | imaging_report | vaccination | progress_note | self_reported | other"
+          },
+          {
+            "name": "source",
+            "value": "health_center",
+            "description": "health_center | patient"
+          },
+          {
+            "name": "description",
+            "value": "Hemograma completo - valores dentro de rangos normales",
+            "description": "Descripción del evento (5-500 chars)"
+          },
+          {
+            "name": "eventDate",
+            "value": "2026-02-18T08:00:00.000Z",
+            "description": "Fecha del evento clínico (ISO 8601)"
+          },
+          {
+            "name": "details",
+            "value": "{\"laboratory\": \"LabCentral\", \"orderNumber\": \"LAB-2026-001\"}",
+            "description": "JSON string con detalles adicionales (opcional)"
+          },
+          {
+            "name": "document",
+            "type": "file",
+            "description": "Archivo PDF o imagen (max 10MB)"
+          }
+        ]
+      }
+    },
+    {
+      "_id": "req_records_my",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Mi Historial Clínico (Paciente)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/records/my",
+      "description": "Retorna el historial clínico completo del paciente autenticado.\nSolo disponible para rol=individual.",
+      "parameters": [
+        {
+          "name": "page",
+          "value": "1",
+          "description": "Página (default: 1)"
+        },
+        {
+          "name": "limit",
+          "value": "20",
+          "description": "Registros por página (max: 100)"
+        },
+        {
+          "name": "recordType",
+          "value": "",
+          "description": "Filtrar por tipo: lab_result | diagnosis | prescription | ..."
+        },
+        {
+          "name": "source",
+          "value": "",
+          "description": "Filtrar por origen: health_center | patient"
+        },
+        {
+          "name": "from",
+          "value": "",
+          "description": "Fecha inicio (ISO 8601), ej: 2026-01-01"
+        },
+        {
+          "name": "to",
+          "value": "",
+          "description": "Fecha fin (ISO 8601), ej: 2026-12-31"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_records_my_stats",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Estadísticas Mi Historial (Paciente)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/records/my/stats",
+      "description": "Retorna estadísticas del historial del paciente:\n- Total de registros\n- Desglose por tipo\n- Cantidad sincronizados on-chain",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_records_patient_hc",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Historial de Paciente (HC)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/records/patient/{{ _.patient_wallet_param }}",
+      "description": "Retorna el historial clínico de un paciente.\nSolo disponible para role=health_center.\nRequiere un AccessGrant activo entre el HC y el paciente.",
+      "parameters": [
+        {
+          "name": "page",
+          "value": "1"
+        },
+        {
+          "name": "limit",
+          "value": "20"
+        },
+        {
+          "name": "recordType",
+          "value": "",
+          "description": "Opcional: filtrar por tipo"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_records_by_id",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Obtener Registro por ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/records/{{ _.record_id }}",
+      "description": "Retorna los metadatos completos de un registro clínico específico.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_records_verify",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Verificar Integridad de Documento",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/records/{{ _.record_id }}/verify",
+      "description": "Verifica que el documento adjunto no fue alterado.\nCalcula SHA256 del archivo subido y lo compara con el hash almacenado.\nRetorna { verified: true/false }",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "name": "document",
+            "type": "file",
+            "description": "El archivo original a verificar"
+          }
+        ]
+      }
+    },
+    {
+      "_id": "req_records_on_chain",
+      "_type": "request",
+      "parentId": "fld_records",
+      "name": "Marcar Registro On-Chain (Admin)",
+      "method": "PATCH",
+      "url": "{{ _.base_url }}/api/records/{{ _.record_id }}/on-chain",
+      "description": "Marca un registro como sincronizado con el contrato Soroban.\nSolo el admin puede ejecutarlo.\nSe llama después de registrar el evento en el contrato MedicalRecordRegistry.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"onChainRecordId\": 1,\n  \"stellarTxHash\": \"abc123def456...\",\n  \"ledgerSequence\": 1234567\n}"
+      }
+    },
+    {
+      "_id": "fld_access",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "🔑 Access Control",
+      "description": "Gestión de permisos paciente ↔ centro de salud"
+    },
+    {
+      "_id": "req_access_grant",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Otorgar Acceso (Paciente)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/access/grant",
+      "description": "El paciente autenticado otorga acceso a un centro de salud.\n\npermission:\n  view = solo lectura del historial\n  add  = puede registrar nuevos eventos\n\ndurationSeconds:\n  0 = sin expiración (hasta revocación manual)\n  3600 = expira en 1 hora\n  86400 = expira en 24 horas",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"centerWallet\": \"{{ _.health_center_wallet }}\",\n  \"permission\": \"add\",\n  \"durationSeconds\": 0\n}"
+      }
+    },
+    {
+      "_id": "req_access_grant_temporal",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Otorgar Acceso Temporal 24h (Paciente)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/access/grant",
+      "description": "Ejemplo de acceso temporal por 24 horas (86400 segundos).\nÚtil para urgencias o consultas puntuales.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"centerWallet\": \"{{ _.health_center_wallet }}\",\n  \"permission\": \"view\",\n  \"durationSeconds\": 86400\n}"
+      }
+    },
+    {
+      "_id": "req_access_revoke",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Revocar Acceso (Paciente)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/access/revoke",
+      "description": "El paciente autenticado revoca el acceso previamente otorgado a un centro.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"centerWallet\": \"{{ _.health_center_wallet }}\"\n}"
+      }
+    },
+    {
+      "_id": "req_access_my_grants",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Mis Permisos Otorgados (Paciente)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/access/my-grants",
+      "description": "Lista todos los permisos que el paciente autenticado ha otorgado (activos e inactivos).",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_access_my_patients",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Mis Pacientes Autorizados (HC)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/access/my-patients",
+      "description": "Lista todos los pacientes que han autorizado acceso al centro de salud autenticado.\nSolo centros de salud activos.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_access_check",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Verificar Acceso",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/access/check",
+      "description": "Verifica si un centro tiene acceso activo y vigente al historial de un paciente.\nRetorna { hasAccess: true/false }",
+      "parameters": [
+        {
+          "name": "patientWallet",
+          "value": "{{ _.patient_wallet }}",
+          "description": "Wallet del paciente"
+        },
+        {
+          "name": "centerWallet",
+          "value": "{{ _.health_center_wallet }}",
+          "description": "Wallet del centro de salud"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_access_grant_detail",
+      "_type": "request",
+      "parentId": "fld_access",
+      "name": "Detalle de Permiso (Paciente)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/access/grant/{{ _.health_center_wallet }}",
+      "description": "El paciente autenticado consulta el detalle de un permiso específico dado a un centro.",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.jwt_token }}"
+        }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "fld_explorer",
+      "_type": "request_group",
+      "parentId": "wrk_redcis",
+      "name": "🔭 Explorer",
+      "description": "Estadísticas públicas del sistema (sin autenticación)"
+    },
+    {
+      "_id": "req_explorer_stats",
+      "_type": "request",
+      "parentId": "fld_explorer",
+      "name": "Estadísticas Globales",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/explorer/stats",
+      "description": "Retorna estadísticas globales del sistema:\n- Total pacientes\n- Total centros de salud\n- Total registros\n- Registros on-chain\n- Permisos activos",
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "req_explorer_recent",
+      "_type": "request",
+      "parentId": "fld_explorer",
+      "name": "Últimos Registros (Anonimizados)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/explorer/recent-records",
+      "description": "Últimos registros clínicos creados, con datos anonimizados (sin info de paciente).",
+      "parameters": [
+        {
+          "name": "limit",
+          "value": "10",
+          "description": "Cantidad de registros a retornar (max: 50)"
+        }
+      ],
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "req_explorer_record_types",
+      "_type": "request",
+      "parentId": "fld_explorer",
+      "name": "Distribución por Tipo de Registro",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/explorer/record-types",
+      "description": "Distribución de todos los registros agrupados por tipo (diagnóstico, laboratorio, etc.).",
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "req_explorer_top_hc",
+      "_type": "request",
+      "parentId": "fld_explorer",
+      "name": "Top Centros de Salud",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/explorer/top-health-centers",
+      "description": "Centros de salud más activos ordenados por número de registros creados.",
+      "headers": [],
+      "body": {}
+    }
+  ]
+}
