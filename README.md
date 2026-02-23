@@ -119,7 +119,7 @@ Funciones:
 
 ---
 
-### Contrato 3 (MVP opcional): AccessControl
+### Contrato 3: AccessControl
 Responsable de:
 - Autorizar acceso a centros de salud.
 
@@ -151,85 +151,7 @@ Funciones:
 
 ---
 
-## 9. Landing Page (Estructura)
-
-### Secciones
-1. Hero
-   - Claim: "Tu historia clínica, verificable y bajo tu control"
-   - CTA: Conectar Wallet
-
-2. Cómo funciona
-   - Identidad
-   - Registro
-   - Consulta
-
-3. Para quién es
-   - Personas
-   - Centros de Salud
-
-4. Tecnología
-   - Blockchain
-   - Seguridad
-   - Inmutabilidad
-
-5. Call to Action
-   - Crear cuenta
-
----
-
-## 10. Dashboard (Post Login)
-
-### 10.1 Dashboard – Persona Natural
-
-**Sidebar**
-- Mi Historial
-- Agregar Registro
-- Accesos
-- Perfil
-
-**Vista Principal**
-- Timeline clínico (visual)
-- Cada evento:
-  - Tipo
-  - Fecha
-  - Centro emisor
-  - Estado verificado (check)
-
-**Agregar Registro**
-- Formulario simple
-- Upload documento
-- Tipo de evento
-- Guardar (hash → blockchain)
-
----
-
-### 10.2 Dashboard – Centro de Salud
-
-**Sidebar**
-- Buscar Paciente
-- Registrar Evento
-- Historiales Consultados
-- Perfil Institucional
-
-**Buscar Paciente**
-- Input DNI
-- Resolución hash → wallet
-- Validación acceso
-
-**Historial del Paciente**
-- Timeline clínico
-- Eventos previos
-- Origen del registro
-
-**Registrar Evento**
-- Selección paciente
-- Tipo de evento
-- Documento
-- Registro on-chain
-
----
-
-## 11. MVP Scope (Qué SÍ / Qué NO)
+## 9. MVP Scope (Qué SÍ / Qué NO)
 
 ### Incluido
 - Registro con wallet
@@ -255,19 +177,5 @@ Funciones:
 - Ser entendible por no técnicos.
 - Servir como base para escalar.
 
----
-
-## 13. Próximos Pasos Técnicos
-
-1. Crear repos:
-   - frontend/
-   - backend/
-   - contracts/
-2. Deploy contratos Soroban (testnet).
-3. Mock de datos clínicos.
-4. Prototipo visual funcional.
-5. Feedback y refinamiento.
-
----
 
 ## Fin del Documento
