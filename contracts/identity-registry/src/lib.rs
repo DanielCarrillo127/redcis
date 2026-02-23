@@ -282,6 +282,82 @@ impl IdentityRegistry {
     }
 
     // -----------------------------------------------------------------------
+    // Gestión de usuarios (Admin)
+    // -----------------------------------------------------------------------
+
+    /// Desactiva un usuario (soft delete).
+    /// Solo el admin puede llamar esta función.
+    pub fn deactivate_user(
+        env: Env,
+        caller: Address,
+        wallet: Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        Self::assert_admin(&env, &caller)?;
+
+        let role: UserRole = env.storage().persistent()
+            .get(&DataKey::Role(wallet.clone()))
+            .ok_or(Error::UserNotFound)?;
+
+        match role {
+            UserRole::Individual => {
+                let mut data: IndividualData = env.storage().persistent()
+                    .get(&DataKey::Individual(wallet.clone()))
+                    .ok_or(Error::UserNotFound)?;
+                data.active = false;
+                env.storage().persistent().set(&DataKey::Individual(wallet.clone()), &data);
+                env.storage().persistent().extend_ttl(&DataKey::Individual(wallet), 100, 1_000_000);
+            }
+            UserRole::HealthCenter => {
+                let mut data: HealthCenterData = env.storage().persistent()
+                    .get(&DataKey::HealthCenter(wallet.clone()))
+                    .ok_or(Error::UserNotFound)?;
+                data.active = false;
+                env.storage().persistent().set(&DataKey::HealthCenter(wallet.clone()), &data);
+                env.storage().persistent().extend_ttl(&DataKey::HealthCenter(wallet), 100, 1_000_000);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Reactiva un usuario previamente desactivado.
+    /// Solo el admin puede llamar esta función.
+    pub fn activate_user(
+        env: Env,
+        caller: Address,
+        wallet: Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        Self::assert_admin(&env, &caller)?;
+
+        let role: UserRole = env.storage().persistent()
+            .get(&DataKey::Role(wallet.clone()))
+            .ok_or(Error::UserNotFound)?;
+
+        match role {
+            UserRole::Individual => {
+                let mut data: IndividualData = env.storage().persistent()
+                    .get(&DataKey::Individual(wallet.clone()))
+                    .ok_or(Error::UserNotFound)?;
+                data.active = true;
+                env.storage().persistent().set(&DataKey::Individual(wallet.clone()), &data);
+                env.storage().persistent().extend_ttl(&DataKey::Individual(wallet), 100, 1_000_000);
+            }
+            UserRole::HealthCenter => {
+                let mut data: HealthCenterData = env.storage().persistent()
+                    .get(&DataKey::HealthCenter(wallet.clone()))
+                    .ok_or(Error::UserNotFound)?;
+                data.active = true;
+                env.storage().persistent().set(&DataKey::HealthCenter(wallet.clone()), &data);
+                env.storage().persistent().extend_ttl(&DataKey::HealthCenter(wallet), 100, 1_000_000);
+            }
+        }
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Consultas
     // -----------------------------------------------------------------------
 
@@ -314,17 +390,35 @@ impl IdentityRegistry {
             .ok_or(Error::UserNotFound)
     }
 
-    /// Verifica si una wallet está registrada.
+    /// Verifica si una wallet está registrada Y activa.
     pub fn is_registered(env: Env, wallet: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Role(wallet))
+        if let Some(role) = env.storage().persistent().get::<DataKey, UserRole>(&DataKey::Role(wallet.clone())) {
+            match role {
+                UserRole::Individual => {
+                    if let Some(data) = env.storage().persistent().get::<DataKey, IndividualData>(&DataKey::Individual(wallet)) {
+                        return data.active;
+                    }
+                }
+                UserRole::HealthCenter => {
+                    if let Some(data) = env.storage().persistent().get::<DataKey, HealthCenterData>(&DataKey::HealthCenter(wallet)) {
+                        return data.active;
+                    }
+                }
+            }
+        }
+        false
     }
 
-    /// Verifica si una wallet tiene el rol de centro de salud.
+    /// Verifica si una wallet tiene el rol de centro de salud Y está activa.
     pub fn is_health_center(env: Env, wallet: Address) -> bool {
-        env.storage().persistent()
-            .get::<DataKey, UserRole>(&DataKey::Role(wallet))
-            .map(|role| role == UserRole::HealthCenter)
-            .unwrap_or(false)
+        if let Some(role) = env.storage().persistent().get::<DataKey, UserRole>(&DataKey::Role(wallet.clone())) {
+            if role == UserRole::HealthCenter {
+                if let Some(data) = env.storage().persistent().get::<DataKey, HealthCenterData>(&DataKey::HealthCenter(wallet)) {
+                    return data.active;
+                }
+            }
+        }
+        false
     }
 
     // -----------------------------------------------------------------------

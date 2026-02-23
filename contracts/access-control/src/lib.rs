@@ -190,7 +190,7 @@ impl AccessControl {
         let key = DataKey::Access(patient_wallet.clone(), center_wallet.clone());
 
         // Verificar si ya existe un permiso activo
-        if let Some(existing): Option<AccessGrant> = env.storage().persistent().get(&key) {
+        if let Some(existing) = env.storage().persistent().get::<DataKey, AccessGrant>(&key) {
             if existing.active {
                 // Verificar si no ha expirado
                 let now = env.ledger().timestamp();
