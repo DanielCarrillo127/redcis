@@ -4,9 +4,11 @@ import { useAuth } from '@/lib/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { ClinicalEventCard } from '@/components/clinical-event-card';
+import { CompleteProfileModal } from '@/components/complete-profile-modal';
 import { ClinicalEvent } from '@/lib/types';
+import { getMyRecords, recordToClinicalEvent } from '@/lib/api/records';
+import { getMyGrants } from '@/lib/api/access';
 import {
   FileText,
   Plus,
@@ -14,33 +16,81 @@ import {
   BarChart3,
   Eye,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
 export default function PatientDashboard() {
-  const { isAuthenticated, currentUser } = useAuth();
-  const { getPatientEvents } = useBlockchain();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
   const [events, setEvents] = useState<ClinicalEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeGrants, setActiveGrants] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'patient') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router]);
+  }, []);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      const userEvents = getPatientEvents(currentUser.id);
-      setEvents(userEvents);
-    }
-  }, [currentUser, getPatientEvents]);
+    // Only redirect after initialization is complete
+    if (isInitializing) return;
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+    if (!isAuthenticated || !currentUser) {
+      router.push('/login');
+      return;
+    }
+    if (currentUser.role !== 'individual') {
+      router.push('/login');
+      return;
+    }
+    if (currentUser.isNewUser) {
+      setShowProfileModal(true);
+    }
+  }, [isAuthenticated, currentUser, router, isInitializing]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!currentUser?.id) return;
+
+      setLoading(true);
+      try {
+        // Cargar registros clínicos
+        const recordsResponse = await getMyRecords({ limit: 100 });
+        const clinicalEvents = recordsResponse.data.map(recordToClinicalEvent);
+        setEvents(clinicalEvents);
+
+        // Cargar permisos activos
+        const grants = await getMyGrants();
+        const activeCount = grants.filter(g => g.active).length;
+        setActiveGrants(activeCount);
+      } catch (error) {
+        console.error('Error loading patient data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [currentUser]);
+
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout
+        title="Mi Dashboard"
+        sidebar={<SidebarNav items={[]} />}
+      >
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
   }
 
   const sidebarItems = [
@@ -72,9 +122,23 @@ export default function PatientDashboard() {
       title="Mi Dashboard"
       sidebar={<SidebarNav items={sidebarItems} />}
     >
+      <CompleteProfileModal
+        open={showProfileModal}
+        onCompleted={() => setShowProfileModal(false)}
+      />
+
       <div className="space-y-6">
         {/* Header Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Accesos Activos</p>
+                <p className="text-3xl font-bold">{activeGrants}</p>
+              </div>
+              <Eye className="w-8 h-8 text-accent opacity-50" />
+            </div>
+          </div>
           <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
@@ -84,21 +148,10 @@ export default function PatientDashboard() {
               <FileText className="w-8 h-8 text-primary opacity-50" />
             </div>
           </div>
-
           <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Accesos Activos</p>
-                <p className="text-3xl font-bold">2</p>
-              </div>
-              <Eye className="w-8 h-8 text-accent opacity-50" />
-            </div>
-          </div>
-
-          <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Verificados</p>
+                <p className="text-sm text-muted-foreground">Registros Verificados</p>
                 <p className="text-3xl font-bold">
                   {events.filter((e) => e.verified).length}
                 </p>
@@ -134,7 +187,7 @@ export default function PatientDashboard() {
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {events
                 .sort(
                   (a, b) =>
@@ -143,7 +196,7 @@ export default function PatientDashboard() {
                 .map((event) => (
                   <Link
                     key={event.id}
-                    href={`/dashboard/patient/event/${event.id}`}
+                    href={`/dashboard/record/${event.id}`}
                   >
                     <ClinicalEventCard event={event} showHealthCenter={true} />
                   </Link>

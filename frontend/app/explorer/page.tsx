@@ -2,26 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import { ClinicalEvent } from '@/lib/types';
-import { getStoredEvents } from '@/lib/utils/blockchain-simulator';
+import { getMyRecords, recordToClinicalEvent } from '@/lib/api/records';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { ChevronLeft, Copy, CheckCircle2, Hash } from 'lucide-react';
-import { useState as useStateForCopy } from 'react';
+import { ChevronLeft, Copy, CheckCircle2, Hash, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function BlockchainExplorerPage() {
   const [events, setEvents] = useState<ClinicalEvent[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<ClinicalEvent | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const storedEvents = getStoredEvents();
-    setEvents(storedEvents);
+    // El explorer muestra registros on-chain — por ahora solo los propios del usuario
+    // En producción esto podría ser un endpoint público de exploración
+    getMyRecords({ limit: 200 })
+      .then((response) => setEvents(response.data.map(recordToClinicalEvent)))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
   }, []);
 
   const copyToClipboard = (text: string) => {
@@ -42,6 +46,14 @@ export default function BlockchainExplorerPage() {
 
   if (!mounted) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -75,7 +87,7 @@ export default function BlockchainExplorerPage() {
             <CardHeader>
               <CardTitle>Explorar Blockchain</CardTitle>
               <CardDescription>
-                Visualiza todos los eventos clínicos registrados en la blockchain simulada
+                Visualiza los registros clínicos verificables del sistema
               </CardDescription>
             </CardHeader>
             <CardContent>

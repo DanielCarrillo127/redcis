@@ -4,7 +4,9 @@ import { useAuth } from '@/lib/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
+import { getMyPatients, grantToAccessPermission } from '@/lib/api/access';
+import { searchPatientByDni } from '@/lib/api/identity';
+import { AccessPermission } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,34 +20,48 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Search, Plus, Eye, BarChart3, Users } from 'lucide-react';
+import { Search, Plus, Eye, BarChart3, Users, User, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 export default function HealthCenterDashboard() {
-  const { isAuthenticated, currentUser } = useAuth();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
-  const { getHealthCenterAccess, grantAccess, searchPatientByDocument } =
-    useBlockchain();
   const [mounted, setMounted] = useState(false);
-  const [permissions, setPermissions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [permissions, setPermissions] = useState<AccessPermission[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchDocument, setSearchDocument] = useState('');
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'healthcenter') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router]);
+  }, []);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      const centerPermissions = getHealthCenterAccess(currentUser.id);
-      setPermissions(centerPermissions);
+    if (isInitializing) return;
+    if (!isAuthenticated || currentUser?.role !== 'health_center') {
+      router.push('/login');
     }
-  }, [currentUser, getHealthCenterAccess]);
+  }, [isAuthenticated, currentUser, router, isInitializing]);
+
+  useEffect(() => {
+    const loadPatients = async () => {
+      if (!currentUser?.id) return;
+      setLoading(true);
+      try {
+        const grants = await getMyPatients();
+        setPermissions(grants.map(grantToAccessPermission));
+      } catch (error) {
+        console.error('Error loading patients:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadPatients();
+  }, [currentUser]);
 
   const sidebarItems = [
     {
@@ -64,6 +80,11 @@ export default function HealthCenterDashboard() {
       label: 'Accesos Otorgados',
       icon: <Users className="w-5 h-5" />,
     },
+    {
+      href: '/dashboard/health-center/profile',
+      label: 'Perfil',
+      icon: <User className="w-5 h-5" />,
+    },
   ];
 
   const handleSearchPatient = async () => {
@@ -74,28 +95,22 @@ export default function HealthCenterDashboard() {
 
     setSearching(true);
     try {
-      const patientId = searchPatientByDocument(searchDocument);
-      if (patientId) {
-        // Grant access automatically for demo
-        grantAccess(
-          patientId,
-          currentUser!.id,
-          currentUser!.name,
-          'view'
-        );
-        toast.success('Acceso solicitado al paciente');
+      const patient = await searchPatientByDni(searchDocument);
+      if (patient) {
         setSearchDocument('');
         setSearchOpen(false);
-        router.push(`/dashboard/health-center/patient/${patientId}`);
+        router.push(`/dashboard/health-center/patient/${patient.wallet}`);
       } else {
-        toast.error('Paciente no encontrado. Prueba con DNI: 12345678');
+        toast.error('Paciente no encontrado con ese DNI');
       }
+    } catch (error) {
+      toast.error('Error al buscar el paciente');
     } finally {
       setSearching(false);
     }
   };
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
   }
 
@@ -129,7 +144,7 @@ export default function HealthCenterDashboard() {
                   {permissions.filter((p) => p.active).length}
                 </p>
               </div>
-              <Eye className="w-8 h-8 text-secondary opacity-50" />
+              <Eye className="w-8 h-8 text-primary opacity-50" />
             </div>
           </div>
         </div>
@@ -166,7 +181,7 @@ export default function HealthCenterDashboard() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Para demo, usa: <strong>12345678</strong>
+                      Ingresa el número de documento del paciente
                     </p>
                   </div>
                 </div>
@@ -224,7 +239,7 @@ export default function HealthCenterDashboard() {
                           }
                         />
                         <p className="text-xs text-muted-foreground">
-                          Para demo, usa: <strong>12345678</strong>
+                          Ingresa el número de documento del paciente
                         </p>
                       </div>
                     </div>
@@ -255,25 +270,47 @@ export default function HealthCenterDashboard() {
                   href={`/dashboard/health-center/patient/${perm.patientId}`}
                 >
                   <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                    <CardContent className="pt-6">
+                    <CardContent>
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-lg">
-                            {perm.patientId}
+                        <div className="space-y-1 text-sm text-muted-foreground mt-2">
+                          <h3 className="font-semibold text-lg text-black">
+                            {perm.patientName ?? `Paciente ${perm.patientId.substring(0, 8)}`}
                           </h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Permiso: {perm.permission === 'view' ? 'Solo lectura' : 'Lectura y escritura'}
+                          {perm.patientDni && (
+                            <p>
+                              <span className="font-medium text-foreground"> DNI:</span>{' '}{perm.patientDni}
+                            </p>
+                          )}
+                          {perm.patientEmail && (
+                            <p>
+                              <span className="font-medium text-foreground">Email:</span>{' '}{perm.patientEmail}
+                            </p>
+                          )}
+                          <p>
+                            <span className="font-medium text-foreground">
+                              Acceso:
+                            </span>{' '}
+                            {perm.permission === 'view'
+                              ? 'Solo lectura'
+                              : 'Lectura y escritura'}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Click para ver historial
+                          <p>
+                            <span className="font-medium text-foreground">Otorgado:</span>{' '}
+                            {formatDistanceToNow(new Date(perm.grantedAt), {
+                              addSuffix: true,
+                              locale: es,
+                            })}
+                          </p>
+                          <p>
+                            <span className="font-medium text-foreground">Fecha de expiración:</span>{' '}
+                            {perm.expiresAt ? new Date(perm.expiresAt).toLocaleDateString('es-ES') : 'Sin fecha de expiración'}
                           </p>
                         </div>
                         <span
-                          className={`px-3 py-1 rounded text-xs font-medium ${
-                            perm.active
-                              ? 'bg-green-100 text-green-900'
-                              : 'bg-gray-100 text-gray-900'
-                          }`}
+                          className={`px-3 py-1 rounded text-xs font-medium ${perm.active
+                            ? 'bg-green-100 text-green-900'
+                            : 'bg-gray-100 text-gray-900'
+                            }`}
                         >
                           {perm.active ? 'Activo' : 'Inactivo'}
                         </span>
@@ -307,7 +344,7 @@ export default function HealthCenterDashboard() {
               </li>
             </ol>
             <p className="text-muted-foreground mt-4">
-              En este MVP, los accesos se otorgan automáticamente para demostración.
+              Los pacientes controlan el acceso a su historial desde su panel.
             </p>
           </CardContent>
         </Card>

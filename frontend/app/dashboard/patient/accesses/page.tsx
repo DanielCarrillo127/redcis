@@ -1,12 +1,11 @@
 'use client';
 
 import { useAuth } from '@/lib/contexts/auth-context';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -26,37 +25,91 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AccessPermission } from '@/lib/types';
-import { FileText, Plus, Lock, BarChart3, Eye, Trash2, Dot } from 'lucide-react';
+import { getMyGrants, grantAccess as apiGrantAccess, revokeAccess as apiRevokeAccess, grantToAccessPermission } from '@/lib/api/access';
+import { grantAccess as sorobanGrantAccess, revokeAccess as sorobanRevokeAccess } from '@/lib/services/soroban';
+import { searchHealthCenters, HealthCenterSearchResult } from '@/lib/api/identity';
+import { FileText, Plus, Lock, BarChart3, Eye, Trash2, Dot, Loader2, Search, Building2, CheckCircle2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 
 export default function AccessesPage() {
-  const { isAuthenticated, currentUser } = useAuth();
-  const { getPatientPermissions, grantAccess, revokeAccess } = useBlockchain();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [granting, setGranting] = useState(false);
   const [permissions, setPermissions] = useState<AccessPermission[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
+
+  // Estado de búsqueda del modal
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<HealthCenterSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedCenter, setSelectedCenter] = useState<HealthCenterSearchResult | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [formData, setFormData] = useState({
-    healthCenterId: '',
-    healthCenterName: '',
     permission: 'view' as 'view' | 'add',
+    durationDays: 0,
   });
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'patient') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router]);
+  }, []);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      const userPermissions = getPatientPermissions(currentUser.id);
-      setPermissions(userPermissions);
+    // Only redirect after initialization is complete
+    if (isInitializing) return;
+
+    if (!isAuthenticated || currentUser?.role !== 'individual') {
+      router.push('/login');
     }
-  }, [currentUser, getPatientPermissions]);
+  }, [isAuthenticated, currentUser, router, isInitializing]);
+
+  useEffect(() => {
+    const loadPermissions = async () => {
+      if (!currentUser?.id) return;
+
+      setLoading(true);
+      try {
+        const grants = await getMyGrants();
+        const perms = grants.map(grantToAccessPermission);
+        setPermissions(perms);
+      } catch (error) {
+        console.error('Error loading permissions:', error);
+        toast.error('Error al cargar los permisos');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPermissions();
+  }, [currentUser]);
+
+  // Debounce search
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const results = await searchHealthCenters(searchQuery.trim());
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery]);
 
   const sidebarItems = [
     {
@@ -82,43 +135,97 @@ export default function AccessesPage() {
     },
   ];
 
-  const handleGrantAccess = () => {
-    if (!formData.healthCenterName.trim()) {
-      toast.error('Ingresa el nombre del centro de salud');
+  const handleGrantAccess = async () => {
+    if (!selectedCenter) {
+      toast.error('Selecciona un centro de salud');
       return;
     }
 
-    grantAccess(
-      currentUser!.id,
-      formData.healthCenterId || `hc-${Date.now()}`,
-      formData.healthCenterName,
-      formData.permission
-    );
+    setGranting(true);
+    try {
+      const durationSeconds = formData.durationDays * 24 * 60 * 60;
 
-    toast.success(`Acceso otorgado a ${formData.healthCenterName}`);
-    setFormData({
-      healthCenterId: '',
-      healthCenterName: '',
-      permission: 'view',
-    });
-    setOpenDialog(false);
+      // 1. Otorgar en backend
+      await apiGrantAccess({
+        centerWallet: selectedCenter.wallet,
+        permission: formData.permission,
+        durationSeconds,
+      });
 
-    // Refresh permissions
-    const updated = getPatientPermissions(currentUser!.id);
-    setPermissions(updated);
+      // 2. Otorgar en Soroban (firma con Freighter)
+      try {
+        if (currentUser?.wallet) {
+          const txHash = await sorobanGrantAccess(
+            currentUser.wallet,
+            selectedCenter.wallet,
+            durationSeconds
+          );
+        }
+      } catch (sorobanError) {
+        console.warn('Soroban grant failed (puede ser que el usuario canceló):', sorobanError);
+        // No bloqueamos si falla Soroban
+      }
+
+      toast.success(`Acceso otorgado a ${selectedCenter.name}`);
+      setFormData({ permission: 'view', durationDays: 0 });
+      setSearchQuery('');
+      setSearchResults([]);
+      setSelectedCenter(null);
+      setOpenDialog(false);
+
+      // Refresh permissions
+      const grants = await getMyGrants();
+      const perms = grants.map(grantToAccessPermission);
+      setPermissions(perms);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Error al otorgar acceso');
+      console.error(error);
+    } finally {
+      setGranting(false);
+    }
   };
 
-  const handleRevokeAccess = (permissionId: string) => {
-    revokeAccess(permissionId);
-    toast.success('Acceso revocado');
+  const handleRevokeAccess = async (healthCenterId: string, centerName: string) => {
+    try {
+      // 1. Revocar en backend
+      await apiRevokeAccess({ centerWallet: healthCenterId });
 
-    // Refresh permissions
-    const updated = getPatientPermissions(currentUser!.id);
-    setPermissions(updated);
+      // 2. Revocar en Soroban (firma con Freighter)
+      try {
+        if (currentUser?.wallet) {
+          const txHash = await sorobanRevokeAccess(currentUser.wallet, healthCenterId);
+        }
+      } catch (sorobanError) {
+        console.warn('Soroban revoke failed:', sorobanError);
+      }
+
+      toast.success(`Acceso revocado a ${centerName}`);
+
+      // Refresh permissions
+      const grants = await getMyGrants();
+      const perms = grants.map(grantToAccessPermission);
+      setPermissions(perms);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Error al revocar acceso');
+      console.error(error);
+    }
   };
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout
+        title="Administrar Accesos"
+        sidebar={<SidebarNav items={sidebarItems} />}
+      >
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
@@ -134,7 +241,15 @@ export default function AccessesPage() {
               Administra quién puede acceder a tu historial clínico
             </p>
           </div>
-          <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+          <Dialog open={openDialog} onOpenChange={(open) => {
+            setOpenDialog(open);
+            if (!open) {
+              setSearchQuery('');
+              setSearchResults([]);
+              setSelectedCenter(null);
+              setFormData({ permission: 'view', durationDays: 0 });
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="w-4 h-4" />
@@ -151,15 +266,96 @@ export default function AccessesPage() {
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="centerName">Nombre del Centro de Salud</Label>
+                  <Label htmlFor="searchQuery">Buscar Centro de Salud</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="searchQuery"
+                      placeholder="Nombre o NIT del centro..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setSelectedCenter(null);
+                      }}
+                      className="pl-9"
+                      disabled={!!selectedCenter}
+                    />
+                    {searching && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+
+                  {/* Search results */}
+                  {!selectedCenter && searchResults.length > 0 && (
+                    <div className="border hover:border-primary hover:bg-[#CCDDEB] rounded-md divide-y max-h-48 overflow-y-auto">
+                      {searchResults.map((center) => (
+                        <button
+                          key={center.wallet}
+                          type="button"
+                          className="w-full flex items-center gap-3 px-3 py-2 text-left cursor-pointer"
+                          onClick={() => {
+                            setSelectedCenter(center);
+                            setSearchResults([]);
+                          }}
+                        >
+                          <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{center.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              NIT: {center.nit} · {center.country}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Selected center */}
+                  {selectedCenter && (
+                    <div className="flex items-center justify-between bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium">{selectedCenter.name}</p>
+                          <p className="text-xs text-muted-foreground">NIT: {selectedCenter.nit}</p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="text-muted-foreground h-auto py-1 px-2 bg-gray-200 hover:bg-gray-200 hover:scale-105 cursor-pointer"
+                        onClick={() => {
+                          setSelectedCenter(null);
+                          setSearchQuery('');
+                        }}
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  )}
+
+                  {!selectedCenter && searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No se encontraron centros de salud con ese nombre o NIT.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="durationDays">Duración del Acceso (días)</Label>
                   <Input
-                    id="centerName"
-                    placeholder="Ej: Hospital Central, Clínica Privada, etc."
-                    value={formData.healthCenterName}
+                    id="durationDays"
+                    type="number"
+                    min="0"
+                    placeholder="0 = sin expiración"
+                    value={formData.durationDays}
                     onChange={(e) =>
-                      setFormData({ ...formData, healthCenterName: e.target.value })
+                      setFormData({ ...formData, durationDays: parseInt(e.target.value) || 0 })
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Deja en 0 para acceso permanente
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -201,11 +397,20 @@ export default function AccessesPage() {
                 <Button
                   variant="outline"
                   onClick={() => setOpenDialog(false)}
+                  disabled={granting}
                 >
                   Cancelar
                 </Button>
-                <Button onClick={handleGrantAccess}>
-                  Otorgar Acceso
+
+                <Button onClick={handleGrantAccess} disabled={granting || !selectedCenter}>
+                  {granting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Otorgando...
+                    </>
+                  ) : (
+                    'Otorgar Acceso'
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -229,7 +434,7 @@ export default function AccessesPage() {
             <div className="grid grid-cols-1 gap-4">
               {permissions.map((perm) => (
                 <Card key={perm.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="pt-6">
+                  <CardContent className="">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <h3 className="font-semibold text-lg mb-1">
@@ -276,10 +481,9 @@ export default function AccessesPage() {
                       </div>
 
                       <Button
-                        variant="ghost"
+                        variant="destructive"
                         size="sm"
-                        onClick={() => handleRevokeAccess(perm.id)}
-                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleRevokeAccess(perm.healthCenterWallet, perm.healthCenterName)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

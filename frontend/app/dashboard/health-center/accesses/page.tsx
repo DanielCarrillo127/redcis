@@ -1,37 +1,55 @@
 'use client';
 
 import { useAuth } from '@/lib/contexts/auth-context';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
 import { AccessPermission } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Search, BarChart3, Users, Eye, Dot } from 'lucide-react';
+import { getMyPatients, grantToAccessPermission } from '@/lib/api/access';
+import { Search, BarChart3, Users, Eye, Dot, User, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import Link from 'next/link';
 
 export default function AccessesPage() {
-  const { isAuthenticated, currentUser } = useAuth();
-  const { getHealthCenterAccess } = useBlockchain();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState<AccessPermission[]>([]);
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'healthcenter') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router]);
+  }, []);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      const centerAccess = getHealthCenterAccess(currentUser.id);
-      setPermissions(centerAccess);
+    // Only redirect after initialization is complete
+    if (isInitializing) return;
+
+    if (!isAuthenticated || currentUser?.role !== 'health_center') {
+      router.push('/login');
     }
-  }, [currentUser, getHealthCenterAccess]);
+  }, [isAuthenticated, currentUser, router, isInitializing]);
+
+  useEffect(() => {
+    const loadPatients = async () => {
+      if (!currentUser?.id) return;
+
+      setLoading(true);
+      try {
+        const grants = await getMyPatients();
+        const perms = grants.map(grantToAccessPermission);
+        setPermissions(perms);
+      } catch (error) {
+        console.error('Error loading patients:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPatients();
+  }, [currentUser]);
 
   const sidebarItems = [
     {
@@ -50,10 +68,25 @@ export default function AccessesPage() {
       icon: <Users className="w-5 h-5" />,
       active: true,
     },
+    {
+      href: '/dashboard/health-center/profile',
+      label: 'Perfil',
+      icon: <User className="w-5 h-5" />,
+    },
   ];
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout title="Accesos Otorgados" sidebar={<SidebarNav items={sidebarItems} />}>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
@@ -80,37 +113,48 @@ export default function AccessesPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {permissions.map((perm) => (
               <Link
                 key={perm.id}
                 href={`/dashboard/health-center/patient/${perm.patientId}`}
               >
                 <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                  <CardContent className="pt-6">
+                  <CardContent>
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <h3 className="font-semibold text-lg">
-                          Paciente {perm.patientId.substring(0, 8)}
+                          {perm.patientName ?? `Paciente ${perm.patientId.substring(0, 8)}`}
                         </h3>
                         <div className="space-y-1 text-sm text-muted-foreground mt-2">
+                          {perm.patientDni && (
+                            <p>
+                              <span className="font-medium text-foreground"> DNI:</span>{' '}{perm.patientDni}
+                            </p>
+                          )}
+                          {perm.patientEmail && (
+                            <p>
+                              <span className="font-medium text-foreground">Email:</span>{' '}{perm.patientEmail}
+                            </p>
+                          )}
                           <p>
-                            Tipo de acceso:{' '}
                             <span className="font-medium text-foreground">
-                              {perm.permission === 'view'
-                                ? 'Solo lectura'
-                                : 'Lectura y escritura'}
-                            </span>
+                              Acceso:
+                            </span>{' '}
+                            {perm.permission === 'view'
+                              ? 'Solo lectura'
+                              : 'Lectura y escritura'}
                           </p>
                           <p>
-                            Otorgado:{' '}
-                            {formatDistanceToNow(
-                              new Date(perm.grantedAt),
-                              {
-                                addSuffix: true,
-                                locale: es,
-                              }
-                            )}
+                            <span className="font-medium text-foreground">Otorgado:</span>{' '}
+                            {formatDistanceToNow(new Date(perm.grantedAt), {
+                              addSuffix: true,
+                              locale: es,
+                            })}
+                          </p>
+                          <p>
+                            <span className="font-medium text-foreground">Fecha de expiración:</span>{' '}
+                            {perm.expiresAt ? new Date(perm.expiresAt).toLocaleDateString('es-ES') : 'Sin fecha de expiración'}
                           </p>
                         </div>
 
@@ -120,8 +164,6 @@ export default function AccessesPage() {
                           </span>
                         </div>
                       </div>
-
-                      <Eye className="w-6 h-6 text-muted-foreground flex-shrink-0" />
                     </div>
                   </CardContent>
                 </Card>

@@ -1,17 +1,29 @@
-// User Types
-export type UserRole = 'patient' | 'healthcenter';
+// User Types — aligned with backend roles
+export type UserRole = 'individual' | 'health_center' | 'admin';
 
 export interface User {
   id: string;
   name: string;
   role: UserRole;
-  wallet: string; // Simulated wallet address
-  document: string; // DNI/ID document
+  wallet: string; // Stellar public key (G...)
   email?: string;
+  // Individual-specific
+  dniHash?: string;
+  // Health center-specific
+  nit?: string;
+  country?: string;
+  // New user flag from auth/verify response
+  isNewUser?: boolean;
+}
+
+// Auth state stored in localStorage
+export interface AuthSession {
+  token: string;
+  user: User;
 }
 
 // Clinical Event Types
-export type EventType = 
+export type EventType =
   | 'consultation'
   | 'diagnosis'
   | 'prescription'
@@ -24,33 +36,38 @@ export type EventType =
 export interface ClinicalEvent {
   id: string;
   hash: string; // SHA-256 hash
-  previousHash?: string; // Reference to previous event (blockchain chain)
+  previousHash?: string;
   patientId: string;
   healthCenterId: string;
   healthCenterName: string;
   eventType: EventType;
-  date: string; // ISO date string
+  date: string;
   description: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   document?: {
     name: string;
     url: string;
     mimeType: string;
   };
   verified: boolean;
+  stellarTxHash?: string;
   timestamp: number;
-  createdBy: string; // User ID who created
+  createdBy: string;
 }
 
 // Access Control Types
 export interface AccessPermission {
   id: string;
   patientId: string;
+  patientName?: string;
+  patientEmail?: string;
+  patientDni?: string;
   healthCenterId: string;
+  healthCenterWallet: string;
   healthCenterName: string;
-  permission: 'view' | 'add'; // view = read-only, add = can register events
-  grantedAt: string; // ISO date string
-  expiresAt?: string; // ISO date string
+  permission: 'view' | 'add';
+  grantedAt: string;
+  expiresAt?: string;
   active: boolean;
 }
 
@@ -61,21 +78,8 @@ export interface BlockchainState {
   lastHash: string;
 }
 
-// Demo Users
-export const DEMO_PATIENT: User = {
-  id: 'patient-001',
-  name: 'Juan Pérez García',
-  role: 'patient',
-  wallet: '0x1234...5678',
-  document: '12345678',
-  email: 'juan@example.com',
-};
-
-export const DEMO_HEALTH_CENTER: User = {
-  id: 'healthcenter-001',
-  name: 'Hospital San Carlos',
-  role: 'healthcenter',
-  wallet: '0xabcd...efgh',
-  document: 'HSC-001',
-  email: 'info@hospitalsancarlos.com',
-};
+// Utility: format wallet address as G...XXXXX...XXXXX
+export function formatWallet(wallet: string): string {
+  if (!wallet || wallet.length <= 10) return wallet;
+  return `${wallet.slice(0, 5)}...${wallet.slice(-5)}`;
+}

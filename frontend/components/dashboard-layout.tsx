@@ -6,7 +6,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { Button } from '@/components/ui/button';
-import { LogOut, Menu } from 'lucide-react';
+import { formatWallet } from '@/lib/types';
+import { LogOut, Menu, Wallet } from 'lucide-react';
 import { useState } from 'react';
 
 interface DashboardLayoutProps {
@@ -50,10 +51,16 @@ export function DashboardLayout({ children, sidebar, title }: DashboardLayoutPro
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {currentUser?.wallet && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border text-xs font-mono text-muted-foreground">
+                <Wallet className="w-3.5 h-3.5 text-primary shrink-0" />
+                {formatWallet(currentUser.wallet)}
+              </div>
+            )}
             <div className="text-right hidden sm:block">
               <p className="text-sm font-medium">{currentUser?.name}</p>
               <p className="text-xs text-muted-foreground capitalize">
-                {currentUser?.role === 'patient' ? 'Paciente' : 'Centro de Salud'}
+                {currentUser?.role === 'individual' ? 'Paciente' : currentUser?.role === 'health_center' ? 'Centro de Salud' : 'Admin'}
               </p>
             </div>
           </div>
@@ -61,7 +68,7 @@ export function DashboardLayout({ children, sidebar, title }: DashboardLayoutPro
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden z-1">
         {/* Sidebar */}
         <aside
           className={`w-64 border-r border-border bg-card flex flex-col transition-all duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
@@ -74,7 +81,7 @@ export function DashboardLayout({ children, sidebar, title }: DashboardLayoutPro
 
             <div className="w-full flex justify-start gap-4 cursor-pointer hover:text-primary" onClick={handleLogout} >
               <span>Salir</span>
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4 relative top-1" />
             </div>
 
           </div>

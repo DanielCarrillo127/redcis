@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from '@/lib/contexts/auth-context';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
@@ -17,30 +16,43 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { EventType } from '@/lib/types';
-import { FileText, Plus, Lock, BarChart3, Loader2 } from 'lucide-react';
+import { createRecord } from '@/lib/api/records';
+import { anchorRecordOnChain, BlockchainRecordError } from '@/lib/api/blockchain-records';
+import { FileText, Plus, Lock, BarChart3, Loader2, Upload, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AddRecordPage() {
-  const { isAuthenticated, currentUser } = useAuth();
-  const { createEvent } = useBlockchain();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [formData, setFormData] = useState({
-    eventType: 'consultation' as EventType,
+    recordType: 'self_reported',
     date: new Date().toISOString().split('T')[0],
     description: '',
     details: '',
   });
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'patient') {
+  }, []);
+
+  useEffect(() => {
+    // Only redirect after initialization is complete
+    if (isInitializing) return;
+
+    if (!isAuthenticated || currentUser?.role !== 'individual') {
       router.push('/login');
     }
-  }, [isAuthenticated, currentUser, router]);
+  }, [isAuthenticated, currentUser, router, isInitializing]);
 
   const sidebarItems = [
     {
@@ -71,28 +83,42 @@ export default function AddRecordPage() {
     setLoading(true);
 
     try {
-      await createEvent(
-        currentUser!.id,
-        'healthcenter-001',
-        'Hospital San Carlos',
-        formData.eventType,
-        new Date(formData.date).toISOString(),
-        formData.description,
-        currentUser!.id,
-        formData.details ? { notes: formData.details } : undefined
-      );
+      const record = await createRecord({
+        recordType: formData.recordType,
+        source: 'patient',
+        description: formData.description,
+        eventDate: new Date(formData.date).toISOString(),
+        details: formData.details ? { notes: formData.details } : undefined,
+        file: selectedFile || undefined,
+      });
 
-      toast.success('Registro agregado correctamente');
+      toast.info('Registro creado. Firmando en blockchain con Freighter...');
+
+      try {
+        await anchorRecordOnChain(record._id, currentUser!.wallet);
+        toast.success('Registro anclado en blockchain correctamente');
+      } catch (chainErr) {
+        if (chainErr instanceof BlockchainRecordError) {
+          if (chainErr.code === 'USER_REJECTED') {
+            toast.warning('Firma cancelada. El registro fue guardado sin anclar en blockchain.');
+          } else {
+            toast.error(`Error al anclar en blockchain: ${chainErr.message}`);
+          }
+        } else {
+          toast.error('Error inesperado al anclar en blockchain');
+        }
+      }
+
       router.push('/dashboard/patient');
-    } catch (error) {
-      toast.error('Error al agregar el registro');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Error al agregar el registro');
       console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
   }
 
@@ -119,24 +145,25 @@ export default function AddRecordPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="eventType">Tipo de Evento</Label>
+                <Label htmlFor="recordType">Tipo de Registro</Label>
                 <Select
-                  value={formData.eventType}
+                  value={formData.recordType}
                   onValueChange={(value) =>
-                    setFormData({ ...formData, eventType: value as EventType })
+                    setFormData({ ...formData, recordType: value })
                   }
                 >
-                  <SelectTrigger id="eventType">
+                  <SelectTrigger id="recordType">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="consultation">Consulta</SelectItem>
+                    <SelectItem value="self_reported">Auto-Reportado</SelectItem>
                     <SelectItem value="diagnosis">Diagnóstico</SelectItem>
                     <SelectItem value="prescription">Prescripción</SelectItem>
-                    <SelectItem value="lab-test">Prueba Laboratorio</SelectItem>
-                    <SelectItem value="imaging">Imagenología</SelectItem>
+                    <SelectItem value="lab_result">Resultado de Laboratorio</SelectItem>
+                    <SelectItem value="imaging_report">Reporte de Imagenología</SelectItem>
                     <SelectItem value="procedure">Procedimiento</SelectItem>
                     <SelectItem value="vaccination">Vacunación</SelectItem>
+                    <SelectItem value="progress_note">Nota de Progreso</SelectItem>
                     <SelectItem value="other">Otro</SelectItem>
                   </SelectContent>
                 </Select>
@@ -182,10 +209,31 @@ export default function AddRecordPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="file">Adjuntar Documento (Opcional)</Label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="file"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={handleFileChange}
+                    className="cursor-pointer"
+                  />
+                  {selectedFile && (
+                    <span className="text-sm text-muted-foreground flex items-center gap-2">
+                      <Upload className="w-4 h-4" />
+                      {selectedFile.name}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Formatos permitidos: PDF, JPG, PNG, WEBP (máx. 10MB)
+                </p>
+              </div>
+
               <div className="bg-accent/10 border border-accent/20 rounded-lg p-4">
                 <p className="text-sm text-foreground">
-                  <span className="font-semibold">Información importante:</span> Este registro será asignado al{' '}
-                  <strong>Hospital San Carlos</strong> como centro registrador. En la versión final, podrás seleccionar el centro que registra el evento.
+                  <span className="font-semibold">Información importante:</span> Este registro será guardado de forma segura y se puede sincronizar con blockchain Stellar para verificación inmutable.
                 </p>
               </div>
 

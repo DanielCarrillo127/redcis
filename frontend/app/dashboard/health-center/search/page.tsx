@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from '@/lib/contexts/auth-context';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
@@ -9,26 +8,32 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Search, BarChart3, Users, Loader2, Dot } from 'lucide-react';
+import { searchPatientByDni, FoundPatient } from '@/lib/api/identity';
+import { Search, BarChart3, Users, Loader2, Dot, User } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 export default function SearchPage() {
-  const { isAuthenticated, currentUser } = useAuth();
-  const { searchPatientByDocument, grantAccess } = useBlockchain();
+  const { isAuthenticated, currentUser, isInitializing } = useAuth();
   const router = useRouter();
 
   const [mounted, setMounted] = useState(false);
   const [document, setDocument] = useState('');
   const [loading, setLoading] = useState(false);
-  const [foundPatient, setFoundPatient] = useState<string | null>(null);
+  const [foundPatient, setFoundPatient] = useState<FoundPatient | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'healthcenter') {
+  }, []);
+
+  useEffect(() => {
+    // Only redirect after initialization is complete
+    if (isInitializing) return;
+
+    if (!isAuthenticated || currentUser?.role !== 'health_center') {
       router.push('/login');
     }
-  }, [isAuthenticated, currentUser, router]);
+  }, [isAuthenticated, currentUser, router, isInitializing]);
 
   const sidebarItems = [
     {
@@ -47,6 +52,11 @@ export default function SearchPage() {
       label: 'Accesos Otorgados',
       icon: <Users className="w-5 h-5" />,
     },
+    {
+      href: '/dashboard/health-center/profile',
+      label: 'Perfil',
+      icon: <User className="w-5 h-5" />,
+    },
   ];
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -58,30 +68,23 @@ export default function SearchPage() {
 
     setLoading(true);
     try {
-      const patientId = searchPatientByDocument(document);
-      if (patientId) {
-        // Grant access
-        grantAccess(
-          patientId,
-          currentUser!.id,
-          currentUser!.name,
-          'view'
-        );
-        setFoundPatient(patientId);
-        toast.success('Acceso otorgado. Redirigiendo...');
-        setTimeout(() => {
-          router.push(`/dashboard/health-center/patient/${patientId}`);
-        }, 1000);
+      const patient = await searchPatientByDni(document);
+      if (patient) {
+        setFoundPatient(patient);
+        toast.success(`Paciente encontrado: ${patient.name}`);
       } else {
-        toast.error('Paciente no encontrado. Intenta con: 12345678');
+        toast.error('Paciente no encontrado con ese DNI');
         setFoundPatient(null);
       }
+    } catch (error) {
+      toast.error('Error al buscar el paciente');
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!mounted || !isAuthenticated || !currentUser) {
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
     return null;
   }
 
@@ -102,7 +105,7 @@ export default function SearchPage() {
           <CardHeader>
             <CardTitle>Búsqueda por DNI</CardTitle>
             <CardDescription>
-              Busca un paciente utilizando su número de documento de identidad
+              Busca un paciente utilizando su número de documento de identidad.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -118,7 +121,7 @@ export default function SearchPage() {
                     onChange={(e) => setDocument(e.target.value)}
                     disabled={loading}
                   />
-                  <Button type="submit" disabled={loading} className="gap-2">
+                  <Button type="submit" disabled={loading} className="gap-2 cursor-pointer">
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -132,13 +135,34 @@ export default function SearchPage() {
                     )}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Para esta demostración, usa: <strong>12345678</strong>
-                </p>
               </div>
             </form>
           </CardContent>
         </Card>
+
+        {/* Resultado de la búsqueda */}
+        {foundPatient && (
+          <Card className="border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800 gap-1">
+            <CardHeader>
+              <CardTitle className="text-green-800 dark:text-green-200">
+                Paciente Encontrado
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="">
+              <p className="font-medium">{foundPatient.name}</p>
+              <p className="text-sm text-muted-foreground">
+                DNI: {foundPatient.dni} - Correo electrónico: {foundPatient.email}
+              </p>
+              <Button
+
+                className="cursor-pointer w-full mt-3 bg-green-200 text-green-800 border-green-800 hover:bg-green-600/90 hover:text-white"
+                onClick={() => router.push(`/dashboard/health-center/patient/${foundPatient.wallet}`)}
+              >
+                Ver Historial
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Help Card */}
         <Card className="border-primary/20 bg-primary/5">
@@ -148,74 +172,31 @@ export default function SearchPage() {
           <CardContent className="space-y-3 text-sm">
             <ol className="space-y-3 list-decimal list-inside">
               <li>
-                <span className="font-medium">Ingresa el DNI</span> del paciente
+                <span className="font-medium">Ingresa el DNI</span> del paciente.
               </li>
               <li>
-                <span className="font-medium">Sistema verifica</span> que el paciente existe
+                <span className="font-medium">Sistema verifica</span> que el paciente existe.
               </li>
               <li>
-                <span className="font-medium">Se solicita acceso</span> al paciente (en blockchain)
+                Si el paciente <span className="font-medium"> ha otorgado acceso</span> desde su panel.
               </li>
               <li>
-                <span className="font-medium">Paciente aprueba</span> la solicitud (si lo desea)
-              </li>
-              <li>
-                <span className="font-medium">Tienes acceso</span> al historial verificable
+                <span className="font-medium">Tienes acceso</span> al historial verificable.
               </li>
             </ol>
           </CardContent>
         </Card>
 
-        {/* Demo Info */}
-        {/* <Card className="border-accent/20 bg-accent/5">
-          <CardHeader>
-            <CardTitle>Información de Demostración</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p>
-              En este MVP, el flujo se simplifica para demostración:
-            </p>
-            <ul className="space-y-2 text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Los accesos se otorgan automáticamente
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Puedes registrar eventos inmediatamente
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Todos los eventos tienen hash SHA-256
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Los registros son inmutables
-              </li>
-            </ul>
-
-            <div className="mt-4 p-3 rounded bg-background border border-border">
-              <p className="font-semibold mb-2">Demo User:</p>
-              <p className="text-muted-foreground">
-                <strong>Nombre:</strong> Juan Pérez García
-              </p>
-              <p className="text-muted-foreground">
-                <strong>DNI:</strong> 12345678
-              </p>
-            </div>
-          </CardContent>
-        </Card> */}
-
         {/* Links */}
         <div className="flex gap-4">
           <Link href="/dashboard/health-center" className="flex-1">
-            <Button variant="outline" className="w-full">
+            <Button variant="outline" className="w-full cursor-pointer">
               Volver a Dashboard
             </Button>
           </Link>
           <Link href="/dashboard/health-center/accesses" className="flex-1">
-            <Button variant="outline" className="w-full">
-              Ver Accesos
+            <Button variant="outline" className="w-full cursor-pointer">
+              Verificar Accesos
             </Button>
           </Link>
         </div>

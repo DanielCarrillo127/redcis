@@ -4,11 +4,12 @@ import { useAuth } from '@/lib/contexts/auth-context';
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
-import { useBlockchain } from '@/lib/contexts/blockchain-context';
 import { ClinicalEvent } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ClinicalEventCard } from '@/components/clinical-event-card';
+import { getPatientRecords, createRecord, recordToClinicalEvent, PatientProfile } from '@/lib/api/records';
+import { anchorRecordOnChain, BlockchainRecordError } from '@/lib/api/blockchain-records';
 import {
   Dialog,
   DialogContent,
@@ -37,25 +38,29 @@ import {
   ArrowLeft,
   FileText,
   Loader2,
+  Upload,
+  User,
 } from 'lucide-react';
-import { EventType } from '@/lib/types';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 export default function PatientViewPage() {
   const { isAuthenticated, currentUser } = useAuth();
-  const { getAccessibleEvents, createEvent } = useBlockchain();
   const router = useRouter();
   const params = useParams();
-  const patientId = params.id as string;
+  const patientWallet = params.id as string;
 
   const [mounted, setMounted] = useState(false);
   const [events, setEvents] = useState<ClinicalEvent[]>([]);
+  const [patient, setPatient] = useState<PatientProfile | null>(null);
+  const [permission, setPermission] = useState<'view' | 'add' | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [formData, setFormData] = useState({
-    eventType: 'consultation' as EventType,
+    recordType: 'diagnosis',
     date: new Date().toISOString().split('T')[0],
     description: '',
     details: '',
@@ -63,17 +68,38 @@ export default function PatientViewPage() {
 
   useEffect(() => {
     setMounted(true);
-    if (!isAuthenticated || currentUser?.role !== 'healthcenter') {
+    if (!isAuthenticated || currentUser?.role !== 'health_center') {
       router.push('/login');
     }
   }, [isAuthenticated, currentUser, router]);
 
   useEffect(() => {
-    if (currentUser?.id && patientId) {
-      const accessibleEvents = getAccessibleEvents(patientId, currentUser.id);
-      setEvents(accessibleEvents);
-    }
-  }, [currentUser, patientId, getAccessibleEvents]);
+    const loadRecords = async () => {
+      if (!currentUser?.id || !patientWallet) return;
+
+      setLoading(true);
+      try {
+        const response = await getPatientRecords(patientWallet, { limit: 100 });
+        const clinicalEvents = response.data.map(recordToClinicalEvent);
+        setEvents(clinicalEvents);
+        if (response.patient) setPatient(response.patient);
+        if (response.permission) setPermission(response.permission);
+      } catch (error: any) {
+        if (error.response?.status === 403) {
+          toast.error('No tienes acceso al historial de este paciente');
+          setTimeout(() => {
+            router.push('/dashboard/health-center/search')
+          }, 1000);
+        } else {
+          console.error('Error loading records:', error);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadRecords();
+  }, [currentUser, patientWallet]);
 
   const sidebarItems = [
     {
@@ -91,6 +117,11 @@ export default function PatientViewPage() {
       label: 'Accesos Otorgados',
       icon: <Users className="w-5 h-5" />,
     },
+    {
+      href: '/dashboard/health-center/profile',
+      label: 'Perfil',
+      icon: <User className="w-5 h-5" />,
+    },
   ];
 
   const handleAddEvent = async () => {
@@ -99,36 +130,54 @@ export default function PatientViewPage() {
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
     try {
-      await createEvent(
-        patientId,
-        currentUser!.id,
-        currentUser!.name,
-        formData.eventType,
-        new Date(formData.date).toISOString(),
-        formData.description,
-        currentUser!.id,
-        formData.details ? { notes: formData.details } : undefined
-      );
+      const record = await createRecord({
+        patientWallet,
+        recordType: formData.recordType,
+        source: 'health_center',
+        description: formData.description,
+        eventDate: new Date(formData.date).toISOString(),
+        details: formData.details ? { notes: formData.details } : undefined,
+        file: selectedFile || undefined,
+      });
 
-      toast.success('Evento registrado en blockchain');
+      toast.info('Registro creado. Firmando en blockchain con Freighter...');
+
+      try {
+        await anchorRecordOnChain(record._id, currentUser!.wallet);
+        toast.success('Registro anclado en blockchain correctamente');
+      } catch (chainErr) {
+        if (chainErr instanceof BlockchainRecordError) {
+          if (chainErr.code === 'USER_REJECTED') {
+            toast.warning('Firma cancelada. El registro fue guardado sin anclar en blockchain.');
+          } else {
+            toast.error(`Error al anclar en blockchain: ${chainErr.message}`);
+          }
+        } else {
+          toast.error('Error inesperado al anclar en blockchain');
+        }
+      }
+
       setOpenDialog(false);
       setFormData({
-        eventType: 'consultation',
+        recordType: 'diagnosis',
         date: new Date().toISOString().split('T')[0],
         description: '',
         details: '',
       });
+      setSelectedFile(null);
 
-      // Refresh events
-      const updated = getAccessibleEvents(patientId, currentUser!.id);
-      setEvents(updated);
-    } catch (error) {
-      toast.error('Error al registrar el evento');
+      // Refresh records
+      const response = await getPatientRecords(patientWallet, { limit: 100 });
+      setEvents(response.data.map(recordToClinicalEvent));
+      if (response.patient) setPatient(response.patient);
+      if (response.permission) setPermission(response.permission);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Error al registrar el evento');
       console.error(error);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -143,21 +192,33 @@ export default function PatientViewPage() {
     >
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <Link href="/dashboard/health-center">
+              <Link href="/dashboard/health-center/accesses">
                 <Button variant="ghost" size="sm" className="gap-2">
                   <ArrowLeft className="w-4 h-4" />
                   Volver
                 </Button>
               </Link>
             </div>
-            <h1 className="text-3xl font-bold">Historial del Paciente</h1>
-            <p className="text-muted-foreground mt-1">
-              ID: <code className="font-mono bg-muted px-2 py-1 rounded">{patientId}</code>
-            </p>
+            <h1 className="text-3xl font-bold">
+              {'Historial del Paciente'}
+            </h1>
+            <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+              {patient?.name && (
+                <p> <span className="font-medium text-foreground">Nombre:</span> {patient?.name}</p>
+              )}
+              {patient?.dni && (
+                <p> <span className="font-medium text-foreground">DNI:</span> {patient?.dni}</p>
+              )}
+              {patient?.email && (
+                <p> <span className="font-medium text-foreground">Email:</span> {patient?.email}</p>
+              )}
+              <p> <span className="font-medium text-foreground"> Wallet:</span> <code className="font-mono bg-muted px-2 py-1 rounded text-xs">{patientWallet}</code></p>
+            </div>
           </div>
+          {permission === 'add' && (
           <Dialog open={openDialog} onOpenChange={setOpenDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -175,27 +236,24 @@ export default function PatientViewPage() {
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="eventType">Tipo de Evento</Label>
+                  <Label htmlFor="recordType">Tipo de Registro</Label>
                   <Select
-                    value={formData.eventType}
+                    value={formData.recordType}
                     onValueChange={(value) =>
-                      setFormData({
-                        ...formData,
-                        eventType: value as EventType,
-                      })
+                      setFormData({ ...formData, recordType: value })
                     }
                   >
-                    <SelectTrigger id="eventType">
+                    <SelectTrigger id="recordType">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="consultation">Consulta</SelectItem>
                       <SelectItem value="diagnosis">Diagnóstico</SelectItem>
                       <SelectItem value="prescription">Prescripción</SelectItem>
-                      <SelectItem value="lab-test">Prueba Laboratorio</SelectItem>
-                      <SelectItem value="imaging">Imagenología</SelectItem>
+                      <SelectItem value="lab_result">Resultado de Laboratorio</SelectItem>
+                      <SelectItem value="imaging_report">Reporte de Imagenología</SelectItem>
                       <SelectItem value="procedure">Procedimiento</SelectItem>
                       <SelectItem value="vaccination">Vacunación</SelectItem>
+                      <SelectItem value="progress_note">Nota de Progreso</SelectItem>
                       <SelectItem value="other">Otro</SelectItem>
                     </SelectContent>
                   </Select>
@@ -241,17 +299,34 @@ export default function PatientViewPage() {
                     rows={3}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="file">Adjuntar Documento (Opcional)</Label>
+                  <Input
+                    id="file"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="cursor-pointer"
+                  />
+                  {selectedFile && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Upload className="w-3 h-3" /> {selectedFile.name}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <DialogFooter>
                 <Button
                   variant="outline"
                   onClick={() => setOpenDialog(false)}
+                  disabled={submitting}
                 >
                   Cancelar
                 </Button>
-                <Button onClick={handleAddEvent} disabled={loading}>
-                  {loading ? (
+                <Button onClick={handleAddEvent} disabled={submitting}>
+                  {submitting ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Registrando...
@@ -263,12 +338,17 @@ export default function PatientViewPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         {/* Events */}
         <div className="space-y-4">
-          <h2 className="text-xl font-bold">Eventos Clínicos</h2>
-          {events.length === 0 ? (
+          <h2 className="text-xl font-bold">Registros Clínicos</h2>
+          {loading ? (
+            <div className="flex items-center justify-center h-40">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : events.length === 0 ? (
             <Card>
               <CardContent className="pt-12 pb-12 text-center">
                 <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
@@ -279,48 +359,20 @@ export default function PatientViewPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {events
                 .sort(
                   (a, b) =>
                     new Date(b.date).getTime() - new Date(a.date).getTime()
                 )
                 .map((event) => (
-                  <ClinicalEventCard key={event.id} event={event} />
+                  <Link key={event.id} href={`/dashboard/record/${event.id}`}>
+                    <ClinicalEventCard event={event} />
+                  </Link>
                 ))}
             </div>
           )}
         </div>
-
-        {/* Blockchain Information */}
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardTitle>Información de Blockchain</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p>
-              Todos los eventos están protegidos por:
-            </p>
-            <ul className="space-y-2 text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <span className="text-primary mt-1">•</span>
-                Hash SHA-256 único e imposible de alterar
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-primary mt-1">•</span>
-                Cadena de referencias verificables
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-primary mt-1">•</span>
-                Timestamps y metadata completa
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-primary mt-1">•</span>
-                Auditoría completa de accesos
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
       </div>
     </DashboardLayout>
   );
