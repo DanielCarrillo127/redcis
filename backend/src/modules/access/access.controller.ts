@@ -97,7 +97,7 @@ export class AccessController {
   async getMyPatients(req: Request, res: Response): Promise<void> {
     try {
       const { sub: centerWallet } = (req as AuthenticatedRequest).user!;
-      const grants = await accessService.getCenterGrants(centerWallet);
+      const grants = await accessService.getCenterGrantsWithPatients(centerWallet);
       respond.ok(res, grants);
     } catch (error) {
       respond.serverError(res, error);

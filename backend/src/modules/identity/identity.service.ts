@@ -11,6 +11,7 @@
 import crypto from 'crypto';
 import { UserModel, IUser } from '../../shared/schemas/user.schema';
 import { UserRole } from '../../shared/types';
+import { sorobanService } from '../soroban/soroban.service';
 
 export interface RegisterIndividualDto {
   wallet: string;
@@ -72,6 +73,7 @@ export class IdentityService {
       // Actualizar datos si ya existe
       existing.name = dto.name;
       existing.email = dto.email;
+      existing.dni = dto.dni;
       existing.dniHash = dniHash;
       existing.dniSalt = dniSalt;
       existing.active = true;
@@ -83,6 +85,7 @@ export class IdentityService {
       role: 'individual',
       name: dto.name,
       email: dto.email,
+      dni: dto.dni,
       dniHash,
       dniSalt,
       active: true,
@@ -103,6 +106,7 @@ export class IdentityService {
   /**
    * Registra un centro de salud.
    * Solo puede hacerlo el admin del sistema.
+   * También registra el HC en el contrato identity-registry.
    */
   async registerHealthCenter(dto: RegisterHealthCenterDto): Promise<IUser> {
     const existing = await UserModel.findOne({ wallet: dto.wallet });
@@ -115,7 +119,8 @@ export class IdentityService {
       throw new Error('El NIT ingresado ya está registrado.');
     }
 
-    return UserModel.create({
+    // Crear en MongoDB primero
+    const user = await UserModel.create({
       wallet: dto.wallet,
       role: 'health_center',
       name: dto.name,
@@ -124,6 +129,28 @@ export class IdentityService {
       email: dto.email,
       active: true,
     });
+
+    // Registrar en el contrato Soroban
+    try {
+      const txHash = await sorobanService.registerHealthCenter({
+        wallet: dto.wallet,
+        name: dto.name,
+        nit: dto.nit,
+        country: dto.country.toUpperCase(),
+      });
+
+      // Guardar el hash de la transacción para referencia
+      user.onChainId = txHash;
+      await user.save();
+
+      console.log(`Health Center registered on-chain. TX: ${txHash}`);
+    } catch (error) {
+      console.error('Failed to register HC on-chain:', error);
+      // No fallar el registro en MongoDB si el contrato falla
+      // En producción, esto debería manejarse con un job queue para reintento
+    }
+
+    return user;
   }
 
   /**
@@ -155,6 +182,20 @@ export class IdentityService {
   }
 
   /**
+   * Obtiene el perfil público del paciente para centros de salud autorizados.
+   */
+  async getPatientProfileWithDni(
+    wallet: string
+  ): Promise<{ wallet: string; name: string; email?: string; dni?: string } | null> {
+    const user = await UserModel.findOne({ wallet, role: 'individual', active: true })
+      .lean<{ wallet: string; name: string; email?: string; dni?: string }>();
+
+    if (!user) return null;
+
+    return { wallet: user.wallet, name: user.name, email: user.email, dni: user.dni };
+  }
+
+  /**
    * Obtiene el rol de un usuario por su wallet.
    */
   async getUserRole(wallet: string): Promise<UserRole | null> {
@@ -177,10 +218,33 @@ export class IdentityService {
    * Lista todos los centros de salud activos.
    */
   async listHealthCenters(): Promise<IUser[]> {
-    return UserModel.find(
+    const centers = await UserModel.find(
       { role: 'health_center', active: true },
       '-dniHash -dniSalt'
-    ).lean() as Promise<IUser[]>;
+    ).lean();
+    return centers as unknown as IUser[];
+  }
+
+  /**
+   * Busca centros de salud activos por nombre o NIT (búsqueda parcial, case-insensitive).
+   * Máximo 10 resultados.
+   */
+  async searchHealthCenters(query: string): Promise<IUser[]> {
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'i');
+
+    const centers = await UserModel.find(
+      {
+        role: 'health_center',
+        active: true,
+        $or: [{ name: regex }, { nit: regex }],
+      },
+      '-dniHash -dniSalt'
+    )
+      .limit(10)
+      .lean();
+
+    return centers as unknown as IUser[];
   }
 
   /**
@@ -194,7 +258,7 @@ export class IdentityService {
     ).lean();
 
     if (!user) throw new Error('Usuario no encontrado.');
-    return user as IUser;
+    return user as unknown as IUser;
   }
 }
 

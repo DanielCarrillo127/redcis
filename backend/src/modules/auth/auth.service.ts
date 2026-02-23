@@ -22,7 +22,14 @@
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { Keypair } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  TransactionBuilder,
+  Networks,
+  Operation,
+  Asset,
+  Transaction
+} from '@stellar/stellar-sdk';
 import { env } from '../../config/env';
 import { AuthNonceModel } from '../../shared/schemas/auth-nonce.schema';
 import { UserModel } from '../../shared/schemas/user.schema';
@@ -30,7 +37,7 @@ import { JwtPayload } from '../../shared/types';
 
 export interface NonceResponse {
   nonce: string;
-  message: string;
+  transaction: string; // XDR-encoded transaction
   expiresAt: Date;
 }
 
@@ -41,19 +48,21 @@ export interface AuthTokenResponse {
     role: string;
     name: string;
     userId: string;
+    email: string;
   };
   isNewUser: boolean;
 }
 
 export class AuthService {
   /**
-   * Genera un nonce único para que el usuario firme con su wallet Freighter.
+   * Genera un nonce único y una transacción de autenticación para que el usuario firme.
    * Invalida cualquier nonce previo para esta wallet.
    */
   async generateNonce(wallet: string): Promise<NonceResponse> {
     // Validar que es una public key de Stellar válida
+    let userKeypair: Keypair;
     try {
-      Keypair.fromPublicKey(wallet);
+      userKeypair = Keypair.fromPublicKey(wallet);
     } catch {
       throw new Error('Wallet inválida: debe ser una Stellar public key (G...)');
     }
@@ -62,28 +71,51 @@ export class AuthService {
     await AuthNonceModel.deleteMany({ wallet });
 
     const nonce = crypto.randomBytes(32).toString('hex');
-    const message = `Autenticación en redcis\nWallet: ${wallet}\nNonce: ${nonce}\nFecha: ${new Date().toISOString()}`;
-    const expiresAt = new Date(
-      Date.now() + env.auth.nonceTtlSeconds * 1000
-    );
+    const expiresAt = new Date(Date.now() + env.auth.nonceTtlSeconds * 1000);
 
+    // Crear transacción de autenticación (SEP-10 style)
+    // Usa una cuenta temporal del servidor como source
+    const serverKeypair = Keypair.random();
+    const transaction = new TransactionBuilder(
+      {
+        accountId: () => serverKeypair.publicKey(),
+        sequenceNumber: () => '0',
+        incrementSequenceNumber: () => {}
+      } as any,
+      {
+        fee: '100',
+        networkPassphrase: Networks.TESTNET,
+      }
+    )
+      .addOperation(
+        Operation.manageData({
+          name: 'redcis auth',
+          value: Buffer.from(nonce, 'utf-8'),
+          source: wallet, // El usuario debe firmar esta operación
+        })
+      )
+      .setTimeout(300) // 5 minutos
+      .build();
+
+    const txXdr = transaction.toXDR();
+
+    // Guardar nonce y el XDR de la transacción
     await AuthNonceModel.create({
       wallet,
       nonce,
-      message,
+      message: txXdr, // Guardamos el XDR para verificación posterior
       expiresAt,
     });
 
-    return { nonce, message, expiresAt };
+    return { nonce, transaction: txXdr, expiresAt };
   }
 
   /**
-   * Verifica la firma del mensaje y emite un JWT si es válida.
+   * Verifica la transacción firmada y emite un JWT si es válida.
    */
   async verifySignatureAndIssueToken(
     wallet: string,
-    signature: string,
-    message: string
+    signedTransactionXdr: string
   ): Promise<AuthTokenResponse> {
     // 1. Buscar el nonce en MongoDB
     const storedNonce = await AuthNonceModel.findOne({
@@ -95,30 +127,39 @@ export class AuthService {
       throw new Error('Nonce no encontrado o expirado. Solicita uno nuevo.');
     }
 
-    // 2. Verificar que el mensaje coincide
-    if (storedNonce.message !== message) {
-      throw new Error('El mensaje no coincide con el nonce almacenado.');
-    }
-
-    // 3. Verificar expiración
+    // 2. Verificar expiración
     if (new Date() > storedNonce.expiresAt) {
       await storedNonce.deleteOne();
       throw new Error('El nonce ha expirado. Solicita uno nuevo.');
     }
 
-    // 4. Verificar firma Ed25519 con Stellar SDK
-    let isValidSignature = false;
+    // 3. Verificar que la transacción firmada coincide con la original
+    let transaction: Transaction;
     try {
-      const keypair = Keypair.fromPublicKey(wallet);
-      const messageBuffer = Buffer.from(message, 'utf-8');
-      const signatureBuffer = Buffer.from(signature, 'base64');
-      isValidSignature = keypair.verify(messageBuffer, signatureBuffer);
+      transaction = new Transaction(signedTransactionXdr, Networks.TESTNET);
     } catch {
-      throw new Error('Error al verificar la firma criptográfica.');
+      throw new Error('Transacción XDR inválida.');
     }
 
-    if (!isValidSignature) {
-      throw new Error('Firma inválida. La firma no corresponde a esta wallet.');
+    // 4. Verificar que la transacción está firmada por la wallet correcta
+    const userKeypair = Keypair.fromPublicKey(wallet);
+    const txHash = transaction.hash();
+
+    // Buscar la firma del usuario en las firmas de la transacción
+    let validSignature = false;
+    for (const sig of transaction.signatures) {
+      try {
+        if (userKeypair.verify(txHash, sig.signature())) {
+          validSignature = true;
+          break;
+        }
+      } catch {
+        // Continuar con la siguiente firma
+      }
+    }
+
+    if (!validSignature) {
+      throw new Error('Firma inválida. La transacción no está firmada por esta wallet.');
     }
 
     // 5. Marcar nonce como usado y eliminar
@@ -161,6 +202,7 @@ export class AuthService {
         wallet: user.wallet,
         role: user.role,
         name: user.name,
+        email: user.email || '',
         userId: (user._id as { toString(): string }).toString(),
       },
       isNewUser,

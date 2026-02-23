@@ -178,7 +178,7 @@ export class RecordsService {
       ClinicalRecordModel.countDocuments(query),
     ]);
 
-    return { records: records as IClinicalRecord[], total };
+    return { records: records as unknown as IClinicalRecord[], total };
   }
 
   /**
@@ -189,7 +189,7 @@ export class RecordsService {
     patientWallet: string,
     centerWallet: string,
     filter: GetRecordsFilter = {}
-  ): Promise<{ records: IClinicalRecord[]; total: number }> {
+  ): Promise<{ records: IClinicalRecord[]; total: number; permission: 'view' | 'add' }> {
     // Verificar acceso
     const grant = await AccessGrantModel.findOne({
       patientWallet,
@@ -205,14 +205,52 @@ export class RecordsService {
       throw new Error('No tienes acceso autorizado al historial de este paciente.');
     }
 
-    return this.getPatientRecords(patientWallet, filter);
+    const { records, total } = await this.getPatientRecords(patientWallet, filter);
+    return { records, total, permission: grant.permission };
   }
 
   /**
-   * Retorna un registro específico por ID.
+   * Retorna un registro específico por ID, con datos del emisor y paciente populados.
    */
-  async getRecordById(recordId: string): Promise<IClinicalRecord | null> {
-    return ClinicalRecordModel.findById(recordId).lean() as Promise<IClinicalRecord | null>;
+  async getRecordById(recordId: string): Promise<any | null> {
+    return ClinicalRecordModel.findById(recordId)
+      .populate('issuerId', 'name email wallet role')
+      .populate('patientId', 'name email wallet')
+      .lean();
+  }
+
+  /**
+   * Verifica si un wallet tiene permiso para acceder a un registro:
+   * - individual: debe ser el paciente o el emisor del registro
+   * - health_center: debe ser el emisor O tener un access grant activo del paciente
+   * - admin: acceso total
+   */
+  async canAccessRecord(
+    record: IClinicalRecord,
+    requesterWallet: string,
+    requesterRole: string,
+  ): Promise<boolean> {
+    if (requesterRole === 'admin') return true;
+
+    if (requesterRole === 'individual') {
+      return (
+        record.patientWallet === requesterWallet ||
+        record.issuerWallet === requesterWallet
+      );
+    }
+
+    if (requesterRole === 'health_center') {
+      if (record.issuerWallet === requesterWallet) return true;
+      const grant = await AccessGrantModel.findOne({
+        patientWallet: record.patientWallet,
+        centerWallet: requesterWallet,
+        active: true,
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+      });
+      return !!grant;
+    }
+
+    return false;
   }
 
   /**

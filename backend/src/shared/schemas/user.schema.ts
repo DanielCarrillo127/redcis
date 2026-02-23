@@ -13,6 +13,8 @@ export interface IUser extends Document {
   wallet: string;
   /** Rol dentro del sistema */
   role: UserRole;
+  /** DNI (solo para individuos) */
+  dni?: string;
   /** Hash del DNI (solo para individuos): SHA256(DNI + salt) */
   dniHash?: string;
   /** Salt usado para el hash del DNI (guardado de forma segura) */
@@ -47,6 +49,11 @@ const UserSchema = new Schema<IUser>(
       type: String,
       required: true,
       enum: ['individual', 'health_center', 'admin'],
+    },
+    dni: {
+      type: String,
+      index: true,
+      sparse: true,
     },
     dniHash: {
       type: String,

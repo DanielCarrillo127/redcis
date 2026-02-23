@@ -10,8 +10,7 @@ const getNonceSchema = z.object({
 
 const verifySchema = z.object({
   wallet: z.string().min(56).max(56),
-  signature: z.string().min(1),
-  message: z.string().min(1),
+  signedTransaction: z.string().min(1),
 });
 
 export class AuthController {
@@ -35,7 +34,7 @@ export class AuthController {
 
       respond.ok(res, {
         wallet,
-        message: nonceData.message,
+        transaction: nonceData.transaction,
         expiresAt: nonceData.expiresAt,
       });
     } catch (error) {
@@ -49,22 +48,21 @@ export class AuthController {
 
   /**
    * POST /auth/verify
-   * Body: { wallet, signature (base64), message }
-   * Verifica la firma y emite JWT.
+   * Body: { wallet, signedTransaction (XDR) }
+   * Verifica la transacción firmada y emite JWT.
    */
   async verify(req: Request, res: Response): Promise<void> {
     try {
       const result = verifySchema.safeParse(req.body);
       if (!result.success) {
-        respond.badRequest(res, 'Payload inválido: se requiere wallet, signature y message.');
+        respond.badRequest(res, 'Payload inválido: se requiere wallet y signedTransaction.');
         return;
       }
 
-      const { wallet, signature, message } = result.data;
+      const { wallet, signedTransaction } = result.data;
       const authResult = await authService.verifySignatureAndIssueToken(
         wallet,
-        signature,
-        message
+        signedTransaction
       );
 
       respond.ok(res, authResult, authResult.isNewUser ? 'Cuenta creada exitosamente' : 'Autenticación exitosa');

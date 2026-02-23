@@ -29,6 +29,13 @@ export const env = {
     horizonUrl:
       process.env.STELLAR_HORIZON_URL ||
       'https://horizon-testnet.stellar.org',
+    rpcUrl:
+      process.env.STELLAR_RPC_URL ||
+      'https://soroban-testnet.stellar.org',
+    identityRegistryContractId: required('IDENTITY_REGISTRY_CONTRACT_ID'),
+    accessControlContractId: required('ACCESS_CONTROL_CONTRACT_ID'),
+    medicalRecordRegistryContractId: required('MEDICAL_RECORD_REGISTRY_CONTRACT_ID'),
+    adminWallet: required('ADMIN_WALLET'),
   },
 
   cors: {

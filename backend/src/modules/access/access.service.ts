@@ -9,6 +9,15 @@
 import { AccessGrantModel, IAccessGrant } from '../../shared/schemas/access-grant.schema';
 import { UserModel } from '../../shared/schemas/user.schema';
 
+export interface PatientProfile {
+  wallet: string;
+  name: string;
+  email?: string;
+  dni?: string;
+}
+
+export type GrantWithPatient = IAccessGrant & { patient: PatientProfile | null };
+
 export interface GrantAccessDto {
   patientWallet: string;
   centerWallet: string;
@@ -132,9 +141,10 @@ export class AccessService {
   async getPatientGrants(patientWallet: string): Promise<IAccessGrant[]> {
     return AccessGrantModel.find({
       patientWallet,
+      active: true
     })
       .sort({ grantedAt: -1 })
-      .lean() as Promise<IAccessGrant[]>;
+      .lean() as unknown as Promise<IAccessGrant[]>;
   }
 
   /**
@@ -150,7 +160,7 @@ export class AccessService {
       ],
     })
       .sort({ grantedAt: -1 })
-      .lean() as Promise<IAccessGrant[]>;
+      .lean() as unknown as Promise<IAccessGrant[]>;
   }
 
   /**
@@ -164,6 +174,28 @@ export class AccessService {
       patientWallet,
       centerWallet,
     }).lean() as Promise<IAccessGrant | null>;
+  }
+
+  /**
+   * Lista los accesos activos de un centro de salud incluyendo el perfil del paciente.
+   * Hace una única query batch para los perfiles, evitando N+1.
+   */
+  async getCenterGrantsWithPatients(centerWallet: string): Promise<GrantWithPatient[]> {
+    const grants = await this.getCenterGrants(centerWallet);
+    if (grants.length === 0) return [];
+
+    const wallets = grants.map((g) => g.patientWallet);
+    const patients = await UserModel.find(
+      { wallet: { $in: wallets }, role: 'individual' },
+      'wallet name email dni'
+    ).lean<PatientProfile[]>();
+
+    const patientMap = new Map(patients.map((p) => [p.wallet, p]));
+
+    return grants.map((grant) => ({
+      ...grant,
+      patient: patientMap.get(grant.patientWallet) ?? null,
+    })) as GrantWithPatient[];
   }
 
   /**

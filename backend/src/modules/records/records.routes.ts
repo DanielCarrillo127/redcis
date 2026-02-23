@@ -69,6 +69,40 @@ router.get(
 );
 
 /**
+ * @route   GET /api/records/:id/document
+ * @desc    Sirve el archivo adjunto de un registro clínico
+ * @access  Privado
+ */
+router.get(
+  '/:id/document',
+  authMiddleware,
+  recordsController.serveDocument.bind(recordsController)
+);
+
+/**
+ * @route   POST /api/records/:id/prepare-on-chain
+ * @desc    Construye la tx Soroban sin firmar y devuelve el authEntryXdr para Freighter
+ * @access  Privado — dueño del registro (paciente o HC que lo creó)
+ */
+router.post(
+  '/:id/prepare-on-chain',
+  authMiddleware,
+  recordsController.buildOnChainTx.bind(recordsController)
+);
+
+/**
+ * @route   POST /api/records/:id/submit-on-chain
+ * @desc    Adjunta el authEntry firmado por Freighter, envía la tx y actualiza MongoDB
+ * @access  Privado — dueño del registro
+ * @body    { txXdr: string, signedAuthEntryXdr: string }
+ */
+router.post(
+  '/:id/submit-on-chain',
+  authMiddleware,
+  recordsController.submitOnChainTx.bind(recordsController)
+);
+
+/**
  * @route   POST /api/records/:id/verify
  * @desc    Verifica la integridad de un documento (compara hash)
  * @access  Privado

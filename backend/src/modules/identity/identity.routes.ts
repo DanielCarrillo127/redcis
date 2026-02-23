@@ -78,6 +78,18 @@ router.get(
 );
 
 /**
+ * @route   GET /api/identity/health-centers/search?q=...
+ * @desc    Busca centros de salud por nombre o NIT (parcial, case-insensitive)
+ * @access  Privado — cualquier usuario autenticado
+ * @query   q (mínimo 2 caracteres)
+ */
+router.get(
+  '/health-centers/search',
+  authMiddleware,
+  identityController.searchHealthCenters.bind(identityController)
+);
+
+/**
  * @route   GET /api/identity/user/:wallet
  * @desc    Datos públicos de un usuario por wallet
  * @access  Privado

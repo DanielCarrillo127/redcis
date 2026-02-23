@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { identityService } from './identity.service';
+import { accessService } from '../access/access.service';
 import { AuthenticatedRequest } from '../../shared/types';
 import * as respond from '../../shared/utils/response';
 
@@ -81,6 +82,7 @@ export class IdentityController {
    */
   async searchByDni(req: Request, res: Response): Promise<void> {
     try {
+      const { sub: centerWallet } = (req as AuthenticatedRequest).user!;
       const { dni } = req.query as { dni?: string };
       if (!dni || dni.trim().length < 5) {
         respond.badRequest(res, 'Parámetro dni inválido (mínimo 5 caracteres)');
@@ -93,9 +95,15 @@ export class IdentityController {
         return;
       }
 
+      const granted = await accessService.hasAccess(patient.wallet, centerWallet);
+      if (!granted) {
+        respond.notFound(res, 'Paciente no encontrado con ese DNI');
+        return;
+      }
+
       // No retornar dniHash ni dniSalt
       const { dniHash: _dniHash, dniSalt: _dniSalt, ...safePatient } = patient as any;
-      respond.ok(res, safePatient);
+      respond.ok(res, { ...safePatient, dni });
     } catch (error) {
       respond.serverError(res, error);
     }
@@ -146,6 +154,25 @@ export class IdentityController {
   async listHealthCenters(_req: Request, res: Response): Promise<void> {
     try {
       const centers = await identityService.listHealthCenters();
+      respond.ok(res, centers);
+    } catch (error) {
+      respond.serverError(res, error);
+    }
+  }
+
+  /**
+   * GET /api/identity/health-centers/search?q=...
+   * Busca centros de salud por nombre o NIT (parcial, case-insensitive).
+   */
+  async searchHealthCenters(req: Request, res: Response): Promise<void> {
+    try {
+      const { q } = req.query as { q?: string };
+      if (!q || q.trim().length < 2) {
+        respond.badRequest(res, 'El parámetro q debe tener al menos 2 caracteres.');
+        return;
+      }
+
+      const centers = await identityService.searchHealthCenters(q.trim());
       respond.ok(res, centers);
     } catch (error) {
       respond.serverError(res, error);
