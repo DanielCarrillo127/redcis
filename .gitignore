@@ -3,6 +3,9 @@
 .env
 .env.*.local
 
+# Claude Code — configuración personal (no compartir)
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db

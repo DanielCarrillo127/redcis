@@ -1,181 +1,150 @@
-# Proyecto: Historia Clínica Descentralizada (MVP Web3)
+# Redcis — Historia Clínica Descentralizada
 
-## 1. Visión General del Producto
+Plataforma Web3 que permite a individuos ser dueños de su historia clínica y a centros de salud registrar y consultar eventos médicos de forma verificable e inmutable, usando la blockchain de Stellar como capa de confianza.
 
-### Descripción
-Historia Clínica Descentralizada es una plataforma Web3 que permite a individuos y centros de salud **registrar, consultar y verificar información clínica histórica de manera confiable**, usando blockchain como capa de inmutabilidad, trazabilidad y control de accesos.
-
-El producto se centra en que:
-- El **individuo es dueño de su información médica**.
-- Los **centros de salud pueden registrar y consultar eventos clínicos** de forma confiable.
-- Blockchain garantiza **quién creó qué información, cuándo y sin posibilidad de alteración**.
-
-Este MVP está diseñado para ser **visual, demostrable y validable**, no para operar como sistema clínico productivo.
+> MVP funcional desplegado en Stellar Testnet.
 
 ---
 
-## 2. Problema que Resuelve
+## El Problema
 
-- La información clínica está fragmentada entre múltiples entidades.
-- El paciente no tiene control real ni acceso completo a su historial.
-- Los centros médicos no confían en información externa.
-- No existe una fuente de verdad verificable e interoperable.
-- Cambios de EPS, ciudad o clínica rompen el historial médico.
+La información clínica está fragmentada entre múltiples entidades. El paciente no tiene control real de su historial, los centros médicos no confían en información externa, y no existe una fuente de verdad verificable ni interoperable. Cambiar de EPS, ciudad o clínica rompe el historial médico.
 
 ---
 
-## 3. Propuesta de Valor
+## La Solución
 
-### Para Personas Naturales (Individuos)
-- Acceso a su **historial clínico completo y verificado**.
-- Control sobre quién puede ver o agregar información.
-- Registro único, portable y permanente.
-- Identidad clínica ligada a una wallet.
-
-### Para Centros de Salud
-- Consulta rápida de historial validado por blockchain.
-- Capacidad de registrar eventos médicos verificables.
-- Reducción de riesgos médicos y operativos.
-- Sin integraciones complejas con otros sistemas.
+Una historia clínica ligada a una wallet Stellar:
+- **El paciente controla quién accede** a su información.
+- **Los documentos médicos se almacenan off-chain** (privacidad), pero sus hashes van on-chain (verificabilidad).
+- **Blockchain garantiza** quién registró qué, cuándo, y sin posibilidad de alteración.
 
 ---
 
-## 4. Roles de Usuario
+## Roles
 
-### 4.1 Persona Natural (Individuo)
-- Se registra con wallet.
-- Vincula su identidad (DNI).
-- Visualiza su historial clínico.
-- Puede cargar registros personales (ej. exámenes externos).
-- Autoriza acceso a centros de salud.
-
-### 4.2 Centro de Salud (Empresa)
-- Se registra como entidad verificada.
-- Vincula su wallet institucional.
-- Busca pacientes por DNI.
-- Consulta historial clínico autorizado.
-- Agrega nuevos registros clínicos al paciente.
+| Rol | Qué puede hacer |
+|-----|-----------------|
+| **Individuo** | Ver su historial, subir registros propios, otorgar/revocar acceso a centros |
+| **Centro de Salud** | Buscar pacientes por DNI, consultar historial autorizado, agregar eventos clínicos |
+| **Admin** | Registrar centros de salud, ver estadísticas globales |
 
 ---
 
-## 5. Modelo de Identidad Web3
+## Arquitectura
 
-### Identidad Base
-- Cada usuario (persona o centro) tiene:
-  - Wallet Stellar
-  - Dirección pública
-  - Rol (Persona / Centro de Salud)
+```
+┌─────────────────┐     ┌─────────────────┐     ┌───────────────────────┐
+│   Frontend      │────▶│    Backend      │────▶│  Stellar / Soroban    │
+│  Next.js + TS   │     │ Express + Mongo │     │   Smart Contracts     │
+│  Freighter UI   │     │  Off-chain data │     │   On-chain truth      │
+└─────────────────┘     └─────────────────┘     └───────────────────────┘
+```
 
-### Relación clave
-- **DNI ↔ Wallet**
-- El DNI NO se expone en blockchain.
-- Se almacena:
-  - Hash(DNI + salt)
-  - Referencia a wallet del individuo
+**Backend** = API REST + almacenamiento de archivos + indexado rápido. No es la fuente de verdad final.
 
----
+**Soroban** = La fuente de verdad. Tres contratos independientes:
 
-## 6. Uso de Blockchain (Stellar)
-
-### ¿Qué va on-chain?
-- Hash de registros médicos.
-- Metadatos del evento clínico.
-- Wallet emisora.
-- Timestamp.
-- Tipo de evento.
-
-### ¿Qué va off-chain?
-- Documentos médicos completos.
-- PDFs, imágenes, resultados clínicos.
-- Datos sensibles.
+| Contrato | Responsabilidad |
+|----------|-----------------|
+| `IdentityRegistry` | Registro de usuarios y vinculación DNI ↔ wallet |
+| `MedicalRecordRegistry` | Registro inmutable de eventos clínicos con hash del documento |
+| `AccessControl` | Permisos de acceso entre paciente y centros de salud |
 
 ---
 
-## 7. Smart Contracts (Soroban – MVP)
+## Flujos Clave
 
-### Contrato 1: IdentityRegistry
-Responsable de:
-- Registrar usuarios.
-- Asignar rol.
-- Vincular hash de DNI a wallet.
+**1. Registro de usuario**
+Conectar Freighter → Firmar nonce → Completar perfil (DNI → se guarda como hash, nunca en texto plano)
 
-Funciones:
-- registerIndividual(hashDNI)
-- registerHealthCenter(metadata)
-- getUserRole(wallet)
+**2. Subir un registro médico**
+Paciente sube archivo → Backend calcula SHA-256 → Guarda en MongoDB → (Opcional) sincroniza hash a Soroban
 
----
+**3. Centro de salud atiende un paciente**
+HC busca por DNI → Backend verifica `AccessGrant` activo → HC consulta historial → HC agrega nuevo registro
 
-### Contrato 2: MedicalRecordRegistry
-Responsable de:
-- Registrar eventos clínicos.
-- Asociar registros a un paciente.
-- Mantener historial inmutable.
+**4. Otorgar acceso**
+Paciente selecciona HC + duración → `AccessGrant` en MongoDB + Soroban `AccessControl`
 
-Funciones:
-- addRecord(patientWallet, recordHash, recordType)
-- getRecords(patientWallet)
-- getRecordMetadata(recordId)
+**5. Verificación de integridad**
+Usuario descarga documento → Recalcula SHA-256 → Compara con hash en blockchain → Verifica tx en Stellar Expert
 
 ---
 
-### Contrato 3: AccessControl
-Responsable de:
-- Autorizar acceso a centros de salud.
+## Stack Tecnológico
 
-Funciones:
-- grantAccess(patientWallet, centerWallet)
-- revokeAccess(...)
-- hasAccess(...)
-
----
-
-## 8. Arquitectura MVP (Alta Nivel)
-
-### Frontend
-- Next.js / Vue / React
-- Wallet connection (Freighter u otra)
-- UI 100% enfocada en visualización
-
-### Backend (ligero)
-- API para:
-  - Subida de archivos
-  - Almacenamiento off-chain
-  - Indexado rápido
-- NO lógica crítica
-
-### Blockchain
-- Stellar Network
-- Soroban Smart Contracts
-- Stellar SDK (JS)
+| Capa | Tecnologías |
+|------|-------------|
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI, Freighter API |
+| Backend | Express.js, TypeScript, MongoDB/Mongoose, JWT, Multer |
+| Contratos | Rust, Soroban SDK 25.1, WASM |
+| Blockchain | Stellar Network (Testnet) |
 
 ---
 
-## 9. MVP Scope (Qué SÍ / Qué NO)
+## Estructura del Repositorio
 
-### Incluido
-- Registro con wallet
-- Roles básicos
-- Visualización de historial
-- Registro de eventos
-- Smart contracts simples
-
-### No incluido
-- Integraciones EPS
-- Firmas médicas legales
-- Emergencias
-- Escalabilidad productiva
-- Cumplimiento regulatorio completo
+```
+redcis/
+├── backend/      # API REST — ver backend/CLAUDE.md
+├── contracts/    # Smart contracts Soroban — ver contracts/CLAUDE.md
+├── frontend/     # Interfaz web — ver frontend/CLAUDE.md
+└── docs/         # Documentación extendida del modelo de negocio
+```
 
 ---
 
-## 12. Objetivo del MVP
+## Inicio Rápido
 
-- Validar UX y flujos.
-- Demostrar uso real de blockchain.
-- Mostrar trazabilidad e inmutabilidad.
-- Ser entendible por no técnicos.
-- Servir como base para escalar.
+**Backend**
+```bash
+cd backend
+npm install
+cp .env.example .env   # Configurar variables
+npm run dev            # Puerto 3001
+```
 
+**Frontend**
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local
+npm run dev            # Puerto 3000
+```
 
-## Fin del Documento
+**Contratos**
+```bash
+cd contracts
+cargo test             # Tests unitarios
+./scripts/deploy.sh    # Desplegar en testnet
+```
+
+Requiere [Freighter](https://freighter.app) instalado en el navegador y una cuenta en Stellar Testnet.
+
+---
+
+## Contratos Desplegados (Testnet)
+
+```
+IdentityRegistry:        CCBLMVUJVDHK7KQKK4AFQ5NEHKPUVV6UGS5ASXOIDPVIIYZVTKTXJJ5O
+AccessControl:           CDT2LNOFNVLRII4NWI3CPA2Z3VW37ZWAKSBIJ6NLB7MM4NYIEQK7EY47
+MedicalRecordRegistry:   CBVCGN56BQ4UESHPSXHC7O4OSOQNYQW4OUTSOD2NGL4YTOJQAYSPGIYZ
+```
+
+---
+
+## Documentación
+
+- [Modelo de negocio y contexto extendido](docs/business-model.md)
+- [Flujos de datos detallados](docs/business-flows.md)
+- [Arquitectura técnica](docs/architecture.md)
+- [Seguridad y privacidad](docs/security.md)
+
+---
+
+## Alcance del MVP
+
+**Incluido:** Autenticación Web3, roles de usuario, historial clínico, subida de archivos, control de accesos con expiración, explorador blockchain público, integración Soroban.
+
+**No incluido:** Integraciones EPS, firmas médicas legales, emergencias, cumplimiento HIPAA/GDPR, escalabilidad productiva.
