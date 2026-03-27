@@ -1,16 +1,16 @@
 'use client';
 
-import { useAuth } from '@/lib/contexts/auth-context';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
-import { getMyPatients, grantToAccessPermission } from '@/lib/api/access';
-import { searchPatientByDni } from '@/lib/api/identity';
-import { AccessPermission } from '@/lib/types';
+import { DashboardLayout } from '@/components/dashboard-layout';
+import { StatCard } from '@/components/dashboard/stat-card';
+import { SkeletonPage } from '@/components/dashboard/skeleton-list';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -20,32 +20,29 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Search, Plus, Eye, BarChart3, Users, User, Loader2 } from 'lucide-react';
-import Link from 'next/link';
+import { useAuth } from '@/lib/contexts/auth-context';
+import { useMounted } from '@/lib/hooks/use-mounted';
+import { useRouteGuard } from '@/lib/hooks/use-route-guard';
+import { HC_NAV_ITEMS } from '@/lib/constants/navigation';
+import type { AccessPermission } from '@/lib/types';
+import { getMyPatients, grantToAccessPermission } from '@/lib/api/access';
+import { searchPatientByDni } from '@/lib/api/identity';
+import { Search, Eye, Users, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export default function HealthCenterDashboard() {
-  const { isAuthenticated, currentUser, isInitializing } = useAuth();
+  const { currentUser, isInitializing } = useAuth();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
+  useRouteGuard({ requiredRole: 'health_center' });
+
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState<AccessPermission[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchDocument, setSearchDocument] = useState('');
   const [searching, setSearching] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isInitializing) return;
-    if (!isAuthenticated || currentUser?.role !== 'health_center') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router, isInitializing]);
 
   useEffect(() => {
     const loadPatients = async () => {
@@ -63,36 +60,16 @@ export default function HealthCenterDashboard() {
     loadPatients();
   }, [currentUser]);
 
-  const sidebarItems = [
-    {
-      href: '/dashboard/health-center',
-      label: 'Dashboard',
-      icon: <BarChart3 className="w-5 h-5" />,
-      active: true,
-    },
-    {
-      href: '/dashboard/health-center/search',
-      label: 'Buscar Paciente',
-      icon: <Search className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/health-center/accesses',
-      label: 'Accesos Otorgados',
-      icon: <Users className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/health-center/profile',
-      label: 'Perfil',
-      icon: <User className="w-5 h-5" />,
-    },
-  ];
+  const activeCount = useMemo(
+    () => permissions.filter((p) => p.active).length,
+    [permissions],
+  );
 
   const handleSearchPatient = async () => {
     if (!searchDocument.trim()) {
       toast.error('Ingresa el DNI del paciente');
       return;
     }
-
     setSearching(true);
     try {
       const patient = await searchPatientByDni(searchDocument);
@@ -103,249 +80,167 @@ export default function HealthCenterDashboard() {
       } else {
         toast.error('Paciente no encontrado con ese DNI');
       }
-    } catch (error) {
+    } catch {
       toast.error('Error al buscar el paciente');
     } finally {
       setSearching(false);
     }
   };
 
-  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
-    return null;
+  if (!mounted || isInitializing || !currentUser) return null;
+
+  if (loading) {
+    return (
+      <DashboardLayout navItems={HC_NAV_ITEMS}>
+        <SkeletonPage />
+      </DashboardLayout>
+    );
   }
 
   return (
-    <DashboardLayout
-      title="Hospital/Centro de Salud"
-      sidebar={<SidebarNav items={sidebarItems} />}
-    >
+    <DashboardLayout navItems={HC_NAV_ITEMS}>
       <div className="space-y-6">
-        {/* Header Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Pacientes Autorizados
-                </p>
-                <p className="text-3xl font-bold">{permissions.length}</p>
-              </div>
-              <Users className="w-8 h-8 text-accent opacity-50" />
-            </div>
+        {/* Page header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Pacientes Autorizados</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Pacientes que te han otorgado acceso a su historial
+            </p>
           </div>
-
-          <div className="p-4 rounded-lg border border-border bg-card hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Permisos Activos
-                </p>
-                <p className="text-3xl font-bold">
-                  {permissions.filter((p) => p.active).length}
+          <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="gap-2">
+                <Search className="w-4 h-4" />
+                Buscar Paciente
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Buscar Paciente</DialogTitle>
+                <DialogDescription>
+                  Ingresa el DNI del paciente para acceder a su historial
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label htmlFor="search-dni">Número de DNI</Label>
+                <Input
+                  id="search-dni"
+                  placeholder="Ej: 12345678"
+                  value={searchDocument}
+                  onChange={(e) => setSearchDocument(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPatient()}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ingresa el número de documento del paciente
                 </p>
               </div>
-              <Eye className="w-8 h-8 text-primary opacity-50" />
-            </div>
-          </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSearchOpen(false)}>Cancelar</Button>
+                <Button onClick={handleSearchPatient} disabled={searching}>
+                  {searching ? 'Buscando...' : 'Buscar'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        {/* Main Content */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Pacientes Autorizados</h2>
-            <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Search className="w-4 h-4" />
-                  Buscar Paciente
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Buscar Paciente</DialogTitle>
-                  <DialogDescription>
-                    Ingresa el DNI del paciente para solicitar acceso a su historial
-                  </DialogDescription>
-                </DialogHeader>
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard
+            label="Pacientes Autorizados"
+            value={permissions.length}
+            icon={Users}
+            description="Historials con acceso aprobado"
+          />
+          <StatCard
+            label="Permisos Activos"
+            value={activeCount}
+            icon={UserCheck}
+            variant="success"
+            description="Accesos vigentes actualmente"
+          />
+        </div>
 
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="dni">Número de DNI</Label>
-                    <Input
-                      id="dni"
-                      placeholder="Ej: 12345678"
-                      value={searchDocument}
-                      onChange={(e) => setSearchDocument(e.target.value)}
-                      onKeyPress={(e) =>
-                        e.key === 'Enter' && handleSearchPatient()
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Ingresa el número de documento del paciente
-                    </p>
-                  </div>
-                </div>
-
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setSearchOpen(false)}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSearchPatient} disabled={searching}>
-                    {searching ? 'Buscando...' : 'Buscar'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+        {/* Patients list */}
+        {permissions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-card p-14 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/8 flex items-center justify-center mx-auto mb-4">
+              <Users className="w-6 h-6 text-primary/60" />
+            </div>
+            <h3 className="text-base font-semibold mb-1">Sin pacientes autorizados</h3>
+            <p className="text-sm text-muted-foreground mb-5 max-w-xs mx-auto">
+              Aún no tienes acceso autorizado a ningún historial de paciente.
+            </p>
+            <Button size="sm" className="gap-2" onClick={() => setSearchOpen(true)}>
+              <Search className="w-4 h-4" />
+              Buscar Paciente
+            </Button>
           </div>
-
-          {permissions.length === 0 ? (
-            <Card>
-              <CardContent className="pt-12 pb-12 text-center">
-                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">
-                  Sin Pacientes Autorizados
-                </h3>
-                <p className="text-muted-foreground mb-6">
-                  Aún no tienes acceso autorizado a ningún historial de paciente
-                </p>
-                <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="gap-2">
-                      <Search className="w-4 h-4" />
-                      Buscar Paciente
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Buscar Paciente</DialogTitle>
-                      <DialogDescription>
-                        Ingresa el DNI del paciente para solicitar acceso a su historial
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="dni">Número de DNI</Label>
-                        <Input
-                          id="dni"
-                          placeholder="Ej: 12345678"
-                          value={searchDocument}
-                          onChange={(e) => setSearchDocument(e.target.value)}
-                          onKeyPress={(e) =>
-                            e.key === 'Enter' && handleSearchPatient()
-                          }
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Ingresa el número de documento del paciente
-                        </p>
-                      </div>
+        ) : (
+          <div className="space-y-3">
+            {permissions.map((perm) => (
+              <Link
+                key={perm.id}
+                href={`/dashboard/health-center/patient/${perm.patientId}`}
+              >
+                <div className="group flex items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-sm transition-all duration-150 cursor-pointer">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0 text-sm font-semibold text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                      {(perm.patientName ?? 'P')[0].toUpperCase()}
                     </div>
-
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => setSearchOpen(false)}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        onClick={handleSearchPatient}
-                        disabled={searching}
-                      >
-                        {searching ? 'Buscando...' : 'Buscar'}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {permissions.map((perm) => (
-                <Link
-                  key={perm.id}
-                  href={`/dashboard/health-center/patient/${perm.patientId}`}
-                >
-                  <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                    <CardContent>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1 text-sm text-muted-foreground mt-2">
-                          <h3 className="font-semibold text-lg text-black">
-                            {perm.patientName ?? `Paciente ${perm.patientId.substring(0, 8)}`}
-                          </h3>
-                          {perm.patientDni && (
-                            <p>
-                              <span className="font-medium text-foreground"> DNI:</span>{' '}{perm.patientDni}
-                            </p>
-                          )}
-                          {perm.patientEmail && (
-                            <p>
-                              <span className="font-medium text-foreground">Email:</span>{' '}{perm.patientEmail}
-                            </p>
-                          )}
-                          <p>
-                            <span className="font-medium text-foreground">
-                              Acceso:
-                            </span>{' '}
-                            {perm.permission === 'view'
-                              ? 'Solo lectura'
-                              : 'Lectura y escritura'}
-                          </p>
-                          <p>
-                            <span className="font-medium text-foreground">Otorgado:</span>{' '}
-                            {formatDistanceToNow(new Date(perm.grantedAt), {
-                              addSuffix: true,
-                              locale: es,
-                            })}
-                          </p>
-                          <p>
-                            <span className="font-medium text-foreground">Fecha de expiración:</span>{' '}
-                            {perm.expiresAt ? new Date(perm.expiresAt).toLocaleDateString('es-ES') : 'Sin fecha de expiración'}
-                          </p>
-                        </div>
-                        <span
-                          className={`px-3 py-1 rounded text-xs font-medium ${perm.active
-                            ? 'bg-green-100 text-green-900'
-                            : 'bg-gray-100 text-gray-900'
-                            }`}
-                        >
-                          {perm.active ? 'Activo' : 'Inactivo'}
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">
+                        {perm.patientName ?? `Paciente ${perm.patientId.substring(0, 8)}`}
+                      </p>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                        {perm.patientDni && <span>DNI {perm.patientDni}</span>}
+                        <span>
+                          {perm.permission === 'view' ? 'Solo lectura' : 'Lectura y escritura'}
+                        </span>
+                        <span>
+                          Otorgado{' '}
+                          {formatDistanceToNow(new Date(perm.grantedAt), {
+                            addSuffix: true,
+                            locale: es,
+                          })}
                         </span>
                       </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {perm.expiresAt && (
+                      <span className="text-xs text-muted-foreground hidden sm:block">
+                        Expira {new Date(perm.expiresAt).toLocaleDateString('es-ES')}
+                      </span>
+                    )}
+                    <Badge
+                      variant={perm.active ? 'default' : 'secondary'}
+                      className={perm.active ? 'bg-secondary/15 text-secondary border-secondary/25 hover:bg-secondary/20' : ''}
+                    >
+                      {perm.active ? 'Activo' : 'Inactivo'}
+                    </Badge>
+                    <Eye className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
 
-        {/* How it works */}
-        <Card className="border-accent/20 bg-accent/5">
-          <CardHeader>
-            <CardTitle>Flujo de Acceso</CardTitle>
+        {/* Workflow guide */}
+        <Card className="border-primary/15 bg-primary/3">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">Flujo de Acceso</CardTitle>
+            <CardDescription className="text-xs">Cómo acceder al historial de un paciente</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <ol className="space-y-2 list-decimal list-inside">
-              <li>
-                <span className="font-medium">Busca el DNI del paciente</span>
-              </li>
-              <li>
-                <span className="font-medium">Solicita acceso</span> - El paciente verá la solicitud
-              </li>
-              <li>
-                <span className="font-medium">Una vez aprobado</span>, puedes ver su historial verificable
-              </li>
-              <li>
-                <span className="font-medium">Registra eventos</span> en blockchain si tienes permisos
-              </li>
+          <CardContent>
+            <ol className="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside">
+              <li><span className="font-medium text-foreground">Busca el DNI del paciente</span></li>
+              <li><span className="font-medium text-foreground">Solicita acceso</span> — el paciente lo aprueba desde su panel</li>
+              <li><span className="font-medium text-foreground">Una vez aprobado</span>, puedes ver su historial verificable</li>
+              <li><span className="font-medium text-foreground">Registra eventos</span> en blockchain si tienes permisos de escritura</li>
             </ol>
-            <p className="text-muted-foreground mt-4">
-              Los pacientes controlan el acceso a su historial desde su panel.
-            </p>
           </CardContent>
         </Card>
       </div>

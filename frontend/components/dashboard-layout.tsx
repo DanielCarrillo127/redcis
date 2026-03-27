@@ -1,22 +1,23 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/contexts/auth-context';
-import { Button } from '@/components/ui/button';
-import { formatWallet } from '@/lib/types';
-import { LogOut, Menu, Wallet } from 'lucide-react';
-import { useState } from 'react';
+import { ROLE_LABELS } from '@/lib/constants/roles';
+import type { NavItem } from '@/lib/constants/navigation';
+import { LogOut, Menu, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+// ── DashboardLayout ──────────────────────────────────────────────────────────
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  sidebar: React.ReactNode;
-  title: string;
+  navItems: NavItem[];
 }
 
-export function DashboardLayout({ children, sidebar, title }: DashboardLayoutProps) {
+export function DashboardLayout({ children, navItems }: DashboardLayoutProps) {
   const { logout, currentUser } = useAuth();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -26,78 +27,116 @@ export function DashboardLayout({ children, sidebar, title }: DashboardLayoutPro
     router.push('/');
   };
 
+  const roleLabel = currentUser?.role ? ROLE_LABELS[currentUser.role] : '';
+  const initials = currentUser?.name
+    ? currentUser.name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
+    : '??';
+
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* Top Navigation */}
-      <header className="border-b border-border bg-card sticky top-0 z-40">
-        <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+
+      {/* ── Top Navigation Bar ─────────────────────────────────── */}
+      <header className="border-b border-border bg-card sticky top-0 z-40 shrink-0">
+        <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+
+          {/* Left: hamburger + logo */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="md:hidden p-2 hover:bg-muted rounded-lg transition-colors"
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden p-1.5 hover:bg-muted rounded-md transition-colors"
+              aria-label="Abrir menú"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-              <Image
-                src="/logo.png"
-                alt="redcis"
-                width={32}
-                height={32}
-                className="w-8 h-8"
-              />
-              <h1 className="font-bold">Redcis</h1>
+            <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+              <Image src="/logo.png" alt="Redcis" width={28} height={28} className="w-7 h-7" />
+              <span className="font-semibold text-sm tracking-tight">Redcis</span>
             </Link>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
-            {currentUser?.wallet && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border text-xs font-mono text-muted-foreground">
-                <Wallet className="w-3.5 h-3.5 text-primary shrink-0" />
-                {formatWallet(currentUser.wallet)}
-              </div>
-            )}
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">{currentUser?.name}</p>
-              <p className="text-xs text-muted-foreground capitalize">
-                {currentUser?.role === 'individual' ? 'Paciente' : currentUser?.role === 'health_center' ? 'Centro de Salud' : 'Admin'}
-              </p>
+          {/* Right: name + role (always visible on desktop) */}
+          <div className="hidden md:flex items-center gap-2.5">
+            <div className="leading-none">
+              <p className="text-sm font-semibold leading-tight">{currentUser?.name}</p>
+              <span className="inline-flex items-center mt-0.5 px-1.5 py-px rounded text-xs font-medium bg-primary/8 text-primary border border-primary/15 float-end">
+                {roleLabel}
+              </span>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-primary">{initials}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden z-1">
-        {/* Sidebar */}
+      {/* ── Body: Sidebar + Main ───────────────────────────────── */}
+      <div className="flex-1 flex overflow-hidden">
+
+        {/* ── Sidebar ──────────────────────────────────────────── */}
         <aside
-          className={`w-64 border-r border-border bg-card flex flex-col transition-all duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-            } fixed md:static h-full md:h-auto z-30`}
+          className={cn(
+            'w-60 border-r border-border bg-card flex flex-col shrink-0',
+            'fixed md:static inset-y-0 left-0 z-50 md:z-auto',
+            'transition-transform duration-200 ease-in-out',
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          )}
         >
-          <div className="flex-1 overflow-y-auto">
-            {sidebar}
-          </div>
-          <div className="p-4 border-border">
-
-            <div className="w-full flex justify-start gap-4 cursor-pointer hover:text-primary" onClick={handleLogout} >
-              <span>Salir</span>
-              <LogOut className="w-4 h-4 relative top-1" />
+          {/* User info block — visible only on mobile (header handles desktop) */}
+          <div className="md:hidden p-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-primary">{initials}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate leading-tight">
+                  {currentUser?.name || 'Usuario'}
+                </p>
+                <span className="inline-flex items-center mt-0.5 px-1.5 py-px rounded text-xs font-medium bg-primary/8 text-primary border border-primary/15">
+                  {roleLabel}
+                </span>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="md:hidden p-1 hover:bg-muted rounded-md transition-colors shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          </div>
 
+          {/* Navigation */}
+          <div className="flex-1 overflow-y-auto py-3">
+            <SidebarNav items={navItems} onNavigate={() => setSidebarOpen(false)} />
+          </div>
+
+          {/* Logout */}
+          <div className="p-3 border-t border-border">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all duration-150"
+            >
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span>Cerrar sesión</span>
+            </button>
           </div>
         </aside>
 
         {/* Mobile overlay */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-black/50 md:hidden z-20"
+            className="fixed inset-0 bg-black/40 md:hidden z-40 backdrop-blur-sm"
             onClick={() => setSidebarOpen(false)}
-          ></div>
+          />
         )}
 
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-auto">
-          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+        {/* ── Main Content ─────────────────────────────────────── */}
+        <main className="flex-1 overflow-auto bg-muted/20">
+          <div className="p-5 sm:p-7 lg:p-8 max-w-7xl mx-auto w-full">
             {children}
           </div>
         </main>
@@ -106,31 +145,37 @@ export function DashboardLayout({ children, sidebar, title }: DashboardLayoutPro
   );
 }
 
+// ── SidebarNav ───────────────────────────────────────────────────────────────
+
 interface SidebarNavProps {
-  items: Array<{
-    href: string;
-    label: string;
-    icon: React.ReactNode;
-    active?: boolean;
-  }>;
+  items: NavItem[];
+  onNavigate?: () => void;
 }
 
-export function SidebarNav({ items }: SidebarNavProps) {
+export function SidebarNav({ items, onNavigate }: SidebarNavProps) {
+  const pathname = usePathname();
+
   return (
-    <nav className="p-4 space-y-2">
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${item.active
-            ? 'bg-primary text-primary-foreground'
-            : 'text-foreground hover:bg-muted'
-            }`}
-        >
-          {item.icon}
-          <span className="font-medium">{item.label}</span>
-        </Link>
-      ))}
+    <nav className="px-3 space-y-0.5">
+      {items.map((item) => {
+        const isActive = pathname === item.href;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+              isActive
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+            )}
+          >
+            <item.icon className="w-4 h-4 shrink-0" />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

@@ -49,12 +49,20 @@ app/
 ```
 components/
 ├── ui/                           # Wrappers de Radix UI (Button, Dialog, etc.)
-├── dashboard-layout.tsx          # Sidebar + layout principal
-├── landing-client.tsx            # Contenido de la landing page
-├── complete-profile-modal.tsx    # Modal primer acceso (completar perfil)
-├── clinical-event-card.tsx       # Tarjeta de registro médico
-├── timeline.tsx                  # Visualización de historial
-└── register-health-center-modal.tsx
+├── dashboard/
+│   ├── stat-card.tsx             # Tarjeta de estadística reutilizable (label, value, icon, variant)
+│   ├── skeleton-list.tsx         # SkeletonPage, SkeletonCardList, SkeletonStatCards, SkeletonCard
+│   └── page-header.tsx           # Header de página reutilizable (title, description, action)
+├── landing/
+│   └── hero-mockup.tsx           # Mini-dashboard UI para hero section (datos ficticios)
+├── medical/
+│   ├── clinical-event-card.tsx   # Tarjeta de registro médico con badge on-chain semántico
+│   └── timeline.tsx              # Visualización de historial
+├── modals/
+│   ├── complete-profile-modal.tsx    # Modal primer acceso
+│   └── register-health-center-modal.tsx
+├── dashboard-layout.tsx          # Sidebar + layout principal (API: navItems: NavItem[])
+└── landing-client.tsx            # Landing page con FadeIn animations, hero mockup, stats bar
 
 lib/
 ├── api/                          # Clientes HTTP por módulo
@@ -64,12 +72,34 @@ lib/
 │   ├── records.ts
 │   ├── access.ts
 │   └── explorer.ts
+├── constants/
+│   ├── navigation.ts             # PATIENT_NAV_ITEMS, HC_NAV_ITEMS, ADMIN_NAV_ITEMS (NavItem[])
+│   ├── roles.ts                  # ROLE_LABELS, ROLE_DASHBOARD_PATHS, getDashboardPath()
+│   └── event-types.ts            # EVENT_TYPE_LABELS (Record<string, string>)
 ├── contexts/
 │   └── auth-context.tsx          # Estado global de autenticación
-├── hooks/                        # Custom React hooks
-├── services/                     # Lógica de negocio del lado cliente
-├── types/                        # Interfaces TypeScript
-└── utils/                        # Helpers
+├── hooks/
+│   ├── use-mounted.ts            # Previene hydration mismatch
+│   ├── use-route-guard.ts        # Protección de rutas por rol (reemplaza boilerplate useEffect)
+│   └── use-in-view.ts            # IntersectionObserver para animaciones scroll
+├── types/                        # Interfaces TypeScript (ClinicalEvent, UserRole, etc.)
+└── utils/
+    └── wallet.ts                 # formatWallet(wallet: string): string
+```
+
+### Convenciones de Layout
+
+Todas las páginas de dashboard usan `<DashboardLayout navItems={XYZ_NAV_ITEMS}>`.
+- `navItems` acepta `NavItem[]` de `lib/constants/navigation.ts`
+- El active state del sidebar se detecta automáticamente con `usePathname()`
+- No pasar `title` ni `sidebar` — API simplificada tras refactor
+
+### Hooks de página estándar
+
+```typescript
+const mounted = useMounted();
+useRouteGuard({ requiredRole: 'individual' }); // o 'health_center' | 'admin'
+if (!mounted || isInitializing || !currentUser) return null;
 ```
 
 ---

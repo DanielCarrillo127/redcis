@@ -1,9 +1,8 @@
 'use client';
 
-import { useAuth } from '@/lib/contexts/auth-context';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
+import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,15 +15,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/lib/contexts/auth-context';
+import { useMounted } from '@/lib/hooks/use-mounted';
+import { useRouteGuard } from '@/lib/hooks/use-route-guard';
+import { PATIENT_NAV_ITEMS } from '@/lib/constants/navigation';
 import { createRecord } from '@/lib/api/records';
 import { anchorRecordOnChain, BlockchainRecordError } from '@/lib/api/blockchain-records';
-import { FileText, Plus, Lock, BarChart3, Loader2, Upload, Link2 } from 'lucide-react';
+import { Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AddRecordPage() {
-  const { isAuthenticated, currentUser, isInitializing } = useAuth();
+  const { currentUser, isInitializing } = useAuth();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
+  useRouteGuard({ requiredRole: 'individual' });
+
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -41,47 +46,9 @@ export default function AddRecordPage() {
     }
   };
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    // Only redirect after initialization is complete
-    if (isInitializing) return;
-
-    if (!isAuthenticated || currentUser?.role !== 'individual') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router, isInitializing]);
-
-  const sidebarItems = [
-    {
-      href: '/dashboard/patient',
-      label: 'Mi Historial',
-      icon: <FileText className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/patient/add-record',
-      label: 'Agregar Registro',
-      icon: <Plus className="w-5 h-5" />,
-      active: true,
-    },
-    {
-      href: '/dashboard/patient/accesses',
-      label: 'Accesos',
-      icon: <Lock className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/patient/profile',
-      label: 'Perfil',
-      icon: <BarChart3 className="w-5 h-5" />,
-    },
-  ];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
       const record = await createRecord({
         recordType: formData.recordType,
@@ -110,28 +77,24 @@ export default function AddRecordPage() {
       }
 
       router.push('/dashboard/patient');
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Error al agregar el registro');
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      toast.error(axiosError.response?.data?.error || 'Error al agregar el registro');
       console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
-    return null;
-  }
+  if (!mounted || isInitializing || !currentUser) return null;
 
   return (
-    <DashboardLayout
-      title="Agregar Registro"
-      sidebar={<SidebarNav items={sidebarItems} />}
-    >
-      <div className="max-w-2xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">Nuevo Evento Clínico</h1>
-          <p className="text-muted-foreground">
-            Crea un nuevo registro que será inmediatamente verificable en blockchain
+    <DashboardLayout navItems={PATIENT_NAV_ITEMS}>
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Nuevo Registro Clínico</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Crea un registro que será verificable en blockchain Stellar
           </p>
         </div>
 
@@ -143,14 +106,12 @@ export default function AddRecordPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="recordType">Tipo de Registro</Label>
                 <Select
                   value={formData.recordType}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, recordType: value })
-                  }
+                  onValueChange={(value) => setFormData({ ...formData, recordType: value })}
                 >
                   <SelectTrigger id="recordType">
                     <SelectValue />
@@ -175,9 +136,7 @@ export default function AddRecordPage() {
                   id="date"
                   type="date"
                   value={formData.date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, date: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   required
                 />
               </div>
@@ -188,9 +147,7 @@ export default function AddRecordPage() {
                   id="description"
                   placeholder="Describe el evento clínico, síntomas, hallazgos, etc."
                   value={formData.description}
-                  onChange={(e) =>
-                    setFormData({ ...formData, description: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={5}
                   required
                 />
@@ -202,16 +159,14 @@ export default function AddRecordPage() {
                   id="details"
                   placeholder="Información adicional, recomendaciones, etc."
                   value={formData.details}
-                  onChange={(e) =>
-                    setFormData({ ...formData, details: e.target.value })
-                  }
-                  rows={4}
+                  onChange={(e) => setFormData({ ...formData, details: e.target.value })}
+                  rows={3}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="file">Adjuntar Documento (Opcional)</Label>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <Input
                     id="file"
                     type="file"
@@ -220,8 +175,8 @@ export default function AddRecordPage() {
                     className="cursor-pointer"
                   />
                   {selectedFile && (
-                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                      <Upload className="w-4 h-4" />
+                    <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
+                      <Upload className="w-3.5 h-3.5" />
                       {selectedFile.name}
                     </span>
                   )}
@@ -231,18 +186,16 @@ export default function AddRecordPage() {
                 </p>
               </div>
 
-              <div className="bg-accent/10 border border-accent/20 rounded-lg p-4">
+              <div className="rounded-lg bg-primary/5 border border-primary/15 p-4">
                 <p className="text-sm text-foreground">
-                  <span className="font-semibold">Información importante:</span> Este registro será guardado de forma segura y se puede sincronizar con blockchain Stellar para verificación inmutable.
+                  <span className="font-semibold">Información importante:</span>{' '}
+                  Este registro será guardado de forma segura y se puede sincronizar con blockchain
+                  Stellar para verificación inmutable.
                 </p>
               </div>
 
-              <div className="flex gap-4">
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1"
-                >
+              <div className="flex gap-3 pt-1">
+                <Button type="submit" disabled={loading} className="flex-1">
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -252,11 +205,7 @@ export default function AddRecordPage() {
                     'Crear Registro'
                   )}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.back()}
-                >
+                <Button type="button" variant="outline" onClick={() => router.back()}>
                   Cancelar
                 </Button>
               </div>

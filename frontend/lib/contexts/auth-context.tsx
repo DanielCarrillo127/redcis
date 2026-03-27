@@ -1,7 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getAddress, signTransaction, isConnected, setAllowed } from '@stellar/freighter-api';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { StellarWalletsKit } from '@creit-tech/stellar-wallets-kit/sdk';
+import { Networks } from '@creit-tech/stellar-wallets-kit/types';
+import { defaultModules } from '@creit-tech/stellar-wallets-kit/modules/utils';
 import { User, AuthSession } from '@/lib/types';
 import { getNonce, verifySignature, getMe } from '@/lib/api';
 
@@ -13,8 +15,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitializing: boolean;
-  /** Full Freighter Web3 login flow */
-  loginWithFreighter: () => Promise<{ isNewUser: boolean }>;
+  /** Web3 login flow — opens wallet selector modal (Freighter, xBull, Albedo, etc.) */
+  loginWithWallet: () => Promise<{ isNewUser: boolean }>;
   logout: () => void;
   /** Update local user data after profile completion */
   updateUser: (user: Partial<User>) => void;
@@ -28,21 +30,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // Restore session from localStorage on mount and validate with backend
+  // Initialize SWK and restore session on mount
   useEffect(() => {
+    StellarWalletsKit.init({
+      modules: defaultModules(),
+      network: Networks.TESTNET,
+    });
+
     const validateSession = async () => {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
           const session: AuthSession = JSON.parse(raw);
           setToken(session.token);
-
-          // Validate session with backend using /me endpoint
           try {
             const user = await getMe();
             setCurrentUser(user);
           } catch (error) {
-            // If validation fails, clear session
             console.error('Session validation failed:', error);
             localStorage.removeItem(STORAGE_KEY);
             setCurrentUser(null);
@@ -53,7 +57,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Error restoring session:', error);
         localStorage.removeItem(STORAGE_KEY);
       } finally {
-        // Session validation complete
         setIsInitializing(false);
       }
     };
@@ -71,13 +74,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(STORAGE_KEY);
     setCurrentUser(null);
     setToken(null);
+    StellarWalletsKit.disconnect();
   }, []);
 
   const updateUser = useCallback((updates: Partial<User>) => {
     setCurrentUser((prev) => {
       if (!prev) return prev;
       const updated = { ...prev, ...updates };
-      // Persist updated session
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         try {
@@ -89,38 +92,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const loginWithFreighter = useCallback(async (): Promise<{ isNewUser: boolean }> => {
+  const loginWithWallet = useCallback(async (): Promise<{ isNewUser: boolean }> => {
     setIsLoading(true);
     try {
-      // 1. Verify Freighter is installed
-      const { isConnected: hasWallet } = await isConnected();
-      if (!hasWallet) {
-        throw new Error('Instala la extensión Freighter para continuar');
-      }
+      // 1. Open wallet selector modal — user picks their wallet (Freighter, xBull, Albedo…)
+      const { address: wallet } = await StellarWalletsKit.authModal();
+      if (!wallet) throw new Error('No se pudo obtener la dirección de la wallet');
 
-      // 2. Request permission (first time)
-      await setAllowed();
-
-      // 3. Get wallet address
-      const { address: wallet } = await getAddress();
-      if (!wallet) {
-        throw new Error('No se pudo obtener la dirección de la wallet');
-      }
-
-      // 4. Get nonce and transaction from backend
+      // 2. Get nonce and unsigned transaction from backend
       const { data: { transaction: txXdr } } = await getNonce(wallet);
 
-      // 5. Sign transaction with Freighter
-      const { signedTxXdr } = await signTransaction(txXdr, {
-        networkPassphrase: 'Test SDF Network ; September 2015',
-        address: wallet
+      // 3. Sign transaction with the selected wallet
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: Networks.TESTNET,
+        address: wallet,
       });
 
-      // 6. Verify signature and get JWT
+      // 4. Verify signature and receive JWT
       const { data } = await verifySignature(wallet, signedTxXdr);
       const { token: newToken, user: backendUser, isNewUser } = data;
 
-      // 7. Build local user object and persist session
+      // 5. Build local user object and persist session
       const user: User = {
         id: backendUser.userId,
         name: backendUser.name ?? '',
@@ -131,26 +123,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       persistSession({ token: newToken, user });
-
       return { isNewUser };
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const contextValue = useMemo(
+    () => ({
+      currentUser,
+      token,
+      isAuthenticated: !!currentUser && !!token,
+      isLoading,
+      isInitializing,
+      loginWithWallet,
+      logout,
+      updateUser,
+    }),
+    [currentUser, token, isLoading, isInitializing, loginWithWallet, logout, updateUser],
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        currentUser,
-        token,
-        isAuthenticated: !!currentUser && !!token,
-        isLoading,
-        isInitializing,
-        loginWithFreighter,
-        logout,
-        updateUser,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

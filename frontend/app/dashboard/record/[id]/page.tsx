@@ -1,56 +1,26 @@
 'use client';
 
-import { useAuth } from '@/lib/contexts/auth-context';
-import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
-import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
-import { getRecordById, getRecordDocumentBlobUrl, RecordResponse } from '@/lib/api/records';
+import { useRouter, useParams } from 'next/navigation';
+import { DashboardLayout } from '@/components/dashboard-layout';
+import { SkeletonPage } from '@/components/dashboard/skeleton-list';
+import { getRecordById, getRecordDocumentBlobUrl, type RecordResponse } from '@/lib/api/records';
 import { anchorRecordOnChain, BlockchainRecordError } from '@/lib/api/blockchain-records';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/lib/contexts/auth-context';
+import { useMounted } from '@/lib/hooks/use-mounted';
+import { PATIENT_NAV_ITEMS, HC_NAV_ITEMS } from '@/lib/constants/navigation';
+import { EVENT_TYPE_LABELS } from '@/lib/constants/event-types';
 import { toast } from 'sonner';
 import {
-  ArrowLeft,
-  FileText,
-  CheckCircle2,
-  Clock,
-  Hash,
-  User,
-  Building2,
-  Calendar,
-  Download,
-  Loader2,
-  AlertCircle,
-  FileImage,
-  FileScan,
-  Link2,
-} from 'lucide-react';
-import {
-  FileText as FileIcon,
-  BarChart3,
-  Plus,
-  Lock,
-  Search,
-  Users,
-  Eye,
+  ArrowLeft, FileText, CheckCircle2, Clock, Hash,
+  User, Building2, Calendar, Download, Loader2,
+  AlertCircle, FileImage, FileScan, Link2,
 } from 'lucide-react';
 
-// ── helpers ────────────────────────────────────────────────────────────────
-
-const recordTypeLabels: Record<string, string> = {
-  lab_result: 'Resultado de Laboratorio',
-  diagnosis: 'Diagnóstico',
-  prescription: 'Prescripción',
-  procedure: 'Procedimiento',
-  imaging_report: 'Reporte de Imagenología',
-  vaccination: 'Vacunación',
-  progress_note: 'Nota de Progreso',
-  self_reported: 'Auto-Reportado',
-  other: 'Otro',
-};
-
-// ── document preview ────────────────────────────────────────────────────────
+// ── document preview ──────────────────────────────────────────────────────────
 
 interface DocumentPreviewProps {
   blobUrl: string | null;
@@ -74,11 +44,7 @@ function DocumentPreview({ blobUrl, mimeType, fileName, loading }: DocumentPrevi
   if (mimeType === 'application/pdf') {
     return (
       <div className="rounded-lg overflow-hidden border">
-        <iframe
-          src={blobUrl}
-          title={fileName}
-          className="w-full h-160"
-        />
+        <iframe src={blobUrl} title={fileName} className="w-full h-160" />
       </div>
     );
   }
@@ -87,11 +53,7 @@ function DocumentPreview({ blobUrl, mimeType, fileName, loading }: DocumentPrevi
     return (
       <div className="rounded-lg overflow-hidden border bg-muted/20 flex items-center justify-center p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={blobUrl}
-          alt={fileName}
-          className="max-w-full max-h-160 rounded object-contain"
-        />
+        <img src={blobUrl} alt={fileName} className="max-w-full max-h-160 rounded object-contain" />
       </div>
     );
   }
@@ -118,11 +80,12 @@ function DocumentPreview({ blobUrl, mimeType, fileName, loading }: DocumentPrevi
   return null;
 }
 
-// ── main page ───────────────────────────────────────────────────────────────
+// ── main page ─────────────────────────────────────────────────────────────────
 
 export default function RecordDetailPage() {
-  const { isAuthenticated, currentUser, isInitializing } = useAuth();
+  const { currentUser, isAuthenticated, isInitializing } = useAuth();
   const router = useRouter();
+  const mounted = useMounted();
   const params = useParams();
   const recordId = params.id as string;
 
@@ -133,7 +96,6 @@ export default function RecordDetailPage() {
   const [docLoading, setDocLoading] = useState(false);
   const [anchoring, setAnchoring] = useState(false);
 
-  // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
       if (blobUrl) URL.revokeObjectURL(blobUrl);
@@ -158,14 +120,11 @@ export default function RecordDetailPage() {
           setDocLoading(false);
         }
       }
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        setError('No tienes permiso para ver este registro.');
-      } else if (err.response?.status === 404) {
-        setError('Registro no encontrado.');
-      } else {
-        setError('Error al cargar el registro.');
-      }
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 403) setError('No tienes permiso para ver este registro.');
+      else if (status === 404) setError('Registro no encontrado.');
+      else setError('Error al cargar el registro.');
     } finally {
       setLoading(false);
     }
@@ -195,48 +154,25 @@ export default function RecordDetailPage() {
 
   useEffect(() => {
     if (isInitializing) return;
-    if (!isAuthenticated) {
-      router.push('/login');
-      return;
-    }
+    if (!isAuthenticated) { router.push('/login'); return; }
     loadRecord();
-  }, [recordId, isAuthenticated, isInitializing, loadRecord]);
+  }, [recordId, isAuthenticated, isInitializing, loadRecord, router]);
 
-  // ── sidebar based on role ──────────────────────────────────────────────
-  const role = currentUser?.role;
+  const navItems = currentUser?.role === 'health_center' ? HC_NAV_ITEMS : PATIENT_NAV_ITEMS;
 
-  const patientSidebar = [
-    { href: '/dashboard/patient', label: 'Mi Historial', icon: <FileIcon className="w-5 h-5" /> },
-    { href: '/dashboard/patient/add-record', label: 'Agregar Registro', icon: <Plus className="w-5 h-5" /> },
-    { href: '/dashboard/patient/accesses', label: 'Accesos', icon: <Lock className="w-5 h-5" /> },
-    { href: '/dashboard/patient/profile', label: 'Perfil', icon: <BarChart3 className="w-5 h-5" /> },
-  ];
-
-  const hcSidebar = [
-    { href: '/dashboard/health-center', label: 'Dashboard', icon: <BarChart3 className="w-5 h-5" /> },
-    { href: '/dashboard/health-center/search', label: 'Buscar Paciente', icon: <Search className="w-5 h-5" /> },
-    { href: '/dashboard/health-center/accesses', label: 'Accesos Otorgados', icon: <Users className="w-5 h-5" /> },
-    { href: '/dashboard/health-center/profile', label: 'Perfil', icon: <Eye className="w-5 h-5" /> },
-  ];
-
-  const sidebarItems = role === 'health_center' ? hcSidebar : patientSidebar;
-
-  // ── loading / error states ─────────────────────────────────────────────
-  if (!isInitializing && (!isAuthenticated || !currentUser)) return null;
+  if (!mounted || isInitializing || !isAuthenticated || !currentUser) return null;
 
   if (loading) {
     return (
-      <DashboardLayout title="Detalle del Registro" sidebar={<SidebarNav items={sidebarItems} />}>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+      <DashboardLayout navItems={navItems}>
+        <SkeletonPage />
       </DashboardLayout>
     );
   }
 
   if (error) {
     return (
-      <DashboardLayout title="Detalle del Registro" sidebar={<SidebarNav items={sidebarItems} />}>
+      <DashboardLayout navItems={navItems}>
         <div className="flex flex-col items-center justify-center h-64 gap-4">
           <AlertCircle className="w-12 h-12 text-destructive opacity-70" />
           <p className="text-muted-foreground">{error}</p>
@@ -251,20 +187,15 @@ export default function RecordDetailPage() {
 
   if (!record) return null;
 
-
-  const typeLabel = recordTypeLabels[record.recordType] ?? record.recordType;
+  const typeLabel = EVENT_TYPE_LABELS[record.recordType] ?? record.recordType;
   const [year, month, day] = record.eventDate.split('T')[0].split('-').map(Number);
-  const eventDate = new Date(year, month - 1, day);
-  const formattedDate = eventDate.toLocaleDateString('es-ES', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const formattedDate = new Date(year, month - 1, day).toLocaleDateString('es-ES', {
+    year: 'numeric', month: 'long', day: 'numeric',
   });
 
   return (
-    <DashboardLayout title="Detalle del Registro" sidebar={<SidebarNav items={sidebarItems} />}>
+    <DashboardLayout navItems={navItems}>
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Back button */}
         <Button variant="ghost" size="sm" onClick={() => router.back()} className="gap-2 -ml-2">
           <ArrowLeft className="w-4 h-4" />
           Volver
@@ -294,12 +225,11 @@ export default function RecordDetailPage() {
                     onClick={() =>
                       window.open(
                         `https://stellar.expert/explorer/testnet/tx/${record.stellarTxHash}`,
-                        '_blank',
-                        'noopener,noreferrer',
+                        '_blank', 'noopener,noreferrer',
                       )
                     }
                   >
-                    <Badge className="bg-green-100 text-green-800 border border-green-200 hover:bg-green-200 cursor-pointer">
+                    <Badge className="bg-secondary/10 text-secondary border border-secondary/30 hover:bg-secondary/20 cursor-pointer">
                       <CheckCircle2 className="w-3 h-3 mr-1" />
                       Verificado on-chain
                     </Badge>
@@ -333,7 +263,6 @@ export default function RecordDetailPage() {
           </CardHeader>
 
           <CardContent className="space-y-5">
-            {/* Description */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                 Descripción
@@ -341,7 +270,6 @@ export default function RecordDetailPage() {
               <p className="text-sm leading-relaxed">{record.description}</p>
             </div>
 
-            {/* Additional details */}
             {record.details && Object.keys(record.details).length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
@@ -350,9 +278,7 @@ export default function RecordDetailPage() {
                 <div className="rounded-lg bg-muted/40 p-3 space-y-1">
                   {Object.entries(record.details).map(([key, value]) => (
                     <div key={key} className="flex gap-2 text-sm">
-                      <span className="font-medium capitalize text-muted-foreground min-w-20">
-                        {key}:
-                      </span>
+                      <span className="font-medium capitalize text-muted-foreground min-w-20">{key}:</span>
                       <span>{String(value)}</span>
                     </div>
                   ))}
@@ -360,53 +286,40 @@ export default function RecordDetailPage() {
               </div>
             )}
 
-            {/* Metadata grid */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                 Metadatos
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Paciente */}
                 <div className="flex items-start gap-2 text-sm">
                   <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">Paciente</p>
-                    {record.patientName && (
-                      <p className="font-medium">{record.patientName}</p>
-                    )}
-                    {record.patientEmail && (
-                      <p className="text-xs text-muted-foreground">{record.patientEmail}</p>
-                    )}
+                    {record.patientName && <p className="font-medium">{record.patientName}</p>}
+                    {record.patientEmail && <p className="text-xs text-muted-foreground">{record.patientEmail}</p>}
                   </div>
                 </div>
 
-                {/* Emisor — no mostrar si es auto-reportado (paciente === emisor) */}
                 {record.source === 'health_center' ? (
                   <div className="flex items-start gap-2 text-sm">
                     <Building2 className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Centro de Salud</p>
-                      <p className="font-medium">
-                        {record.issuerName ?? record.healthCenterName ?? '—'}
-                      </p>
-                      {record.issuerEmail && (
-                        <p className="text-xs text-muted-foreground">{record.issuerEmail}</p>
-                      )}
+                      <p className="font-medium">{record.issuerName ?? record.healthCenterName ?? '—'}</p>
+                      {record.issuerEmail && <p className="text-xs text-muted-foreground">{record.issuerEmail}</p>}
                     </div>
                   </div>
                 ) : (
-                  /* source === 'patient': auto-reportado, el emisor ES el paciente */
                   <div className="flex items-start gap-2 text-sm">
                     <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div>
                       <p className="text-xs text-muted-foreground">Origen</p>
                       <p className="font-medium text-primary">Auto-reportado</p>
-                      <p className="text-xs text-muted-foreground">
-                        El paciente registró este evento directamente
-                      </p>
+                      <p className="text-xs text-muted-foreground">El paciente registró este evento directamente</p>
                     </div>
                   </div>
                 )}
+
                 <div className="flex items-start gap-2 text-sm sm:col-span-2">
                   <Hash className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                   <div className="min-w-0">
@@ -416,11 +329,12 @@ export default function RecordDetailPage() {
                     </code>
                   </div>
                 </div>
+
                 {record.isOnChain && (
                   <>
                     {record.onChainRecordId !== undefined && (
                       <div className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
                         <div>
                           <p className="text-xs text-muted-foreground">ID on-chain</p>
                           <p className="font-mono text-xs">#{record.onChainRecordId}</p>
@@ -429,7 +343,7 @@ export default function RecordDetailPage() {
                     )}
                     {record.stellarTxHash && (
                       <div className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
                         <div>
                           <p className="text-xs text-muted-foreground">Stellar TX</p>
                           <a

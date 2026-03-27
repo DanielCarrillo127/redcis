@@ -26,6 +26,9 @@
   --destructive: #d32f2f;
   --destructive-foreground: oklch(0.98 0 0);
   
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.01 246.816);
+
   --muted: oklch(0.95 0.002 256.045);
   --muted-foreground: oklch(0.45 0.02 247.839);
   --border: oklch(0.93 0.003 247.858);
@@ -39,7 +42,18 @@
   --chart-5: #023d6e;
   
   --radius: 0.625rem;
-  
+
+  /* Semantic state tokens */
+  --success: #5cb243;
+  --success-foreground: oklch(0.98 0 0);
+  --warning: #d97706;
+  --warning-foreground: oklch(0.98 0 0);
+
+  /* Transition tokens */
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 400ms ease;
+
   --sidebar: oklch(0.98 0.001 247.858);
   --sidebar-foreground: oklch(0.2 0.01 246.816);
   --sidebar-primary: #04579e;
@@ -88,7 +102,13 @@
   --chart-5: #3b7ab8;
   
   --radius: 0.625rem;
-  
+
+  /* Semantic state tokens - dark */
+  --success: #7dd243;
+  --success-foreground: oklch(0.12 0.01 246.816);
+  --warning: #f59e0b;
+  --warning-foreground: oklch(0.12 0.01 246.816);
+
   --sidebar: oklch(0.15 0.01 246.816);
   --sidebar-foreground: oklch(0.95 0.002 256.045);
   --sidebar-primary: #4a9fd8;
@@ -138,13 +158,26 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background-color: color-mix(in oklch, var(--primary) 20%, transparent);
   }
 }

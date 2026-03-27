@@ -1,7 +1,7 @@
 /**
  * Soroban Service — Cliente para interactuar con los contratos desde el frontend
  *
- * Este servicio construye transacciones que el usuario firma con Freighter.
+ * Este servicio construye transacciones que el usuario firma con su wallet Stellar activa.
  * Las transacciones se envían directamente desde el navegador a Stellar.
  */
 
@@ -13,7 +13,7 @@ import {
   nativeToScVal,
   Account,
 } from '@stellar/stellar-sdk';
-import { signTransaction } from '@stellar/freighter-api';
+import { StellarWalletsKit } from '@creit-tech/stellar-wallets-kit/sdk';
 
 const RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -62,8 +62,8 @@ export async function registerIndividual(
     // Preparar transacción con el servidor RPC
     const prepared = await server.prepareTransaction(tx);
 
-    // Firmar con Freighter
-    const signedResponse = await signTransaction(prepared.toXDR(), {
+    // Firmar con la wallet activa (StellarWalletsKit)
+    const signedResponse = await StellarWalletsKit.signTransaction(prepared.toXDR(), {
       networkPassphrase,
       address: userPublicKey,
     });
@@ -127,7 +127,7 @@ export async function grantAccess(
 
     const prepared = await server.prepareTransaction(tx);
 
-    const signedResponse = await signTransaction(prepared.toXDR(), {
+    const signedResponse = await StellarWalletsKit.signTransaction(prepared.toXDR(), {
       networkPassphrase,
       address: patientPublicKey,
     });
@@ -187,7 +187,7 @@ export async function revokeAccess(
 
     const prepared = await server.prepareTransaction(tx);
 
-    const signedResponse = await signTransaction(prepared.toXDR(), {
+    const signedResponse = await StellarWalletsKit.signTransaction(prepared.toXDR(), {
       networkPassphrase,
       address: patientPublicKey,
     });

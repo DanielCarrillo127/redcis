@@ -1,11 +1,11 @@
 'use client';
 
-import { useAuth } from '@/lib/contexts/auth-context';
-import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
+import { DashboardLayout } from '@/components/dashboard-layout';
+import { SkeletonCardList } from '@/components/dashboard/skeleton-list';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -24,25 +24,46 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AccessPermission } from '@/lib/types';
-import { getMyGrants, grantAccess as apiGrantAccess, revokeAccess as apiRevokeAccess, grantToAccessPermission } from '@/lib/api/access';
-import { grantAccess as sorobanGrantAccess, revokeAccess as sorobanRevokeAccess } from '@/lib/services/soroban';
+import { useAuth } from '@/lib/contexts/auth-context';
+import { useMounted } from '@/lib/hooks/use-mounted';
+import { useRouteGuard } from '@/lib/hooks/use-route-guard';
+import { PATIENT_NAV_ITEMS } from '@/lib/constants/navigation';
+import type { AccessPermission } from '@/lib/types';
+import {
+  getMyGrants,
+  grantAccess as apiGrantAccess,
+  revokeAccess as apiRevokeAccess,
+  grantToAccessPermission,
+} from '@/lib/api/access';
+import {
+  grantAccess as sorobanGrantAccess,
+  revokeAccess as sorobanRevokeAccess,
+} from '@/lib/services/soroban';
 import { searchHealthCenters, HealthCenterSearchResult } from '@/lib/api/identity';
-import { FileText, Plus, Lock, BarChart3, Eye, Trash2, Dot, Loader2, Search, Building2, CheckCircle2 } from 'lucide-react';
+import {
+  Eye,
+  Trash2,
+  Loader2,
+  Search,
+  Building2,
+  CheckCircle2,
+  Plus,
+  ShieldCheck,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 
 export default function AccessesPage() {
-  const { isAuthenticated, currentUser, isInitializing } = useAuth();
-  const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const { currentUser, isInitializing } = useAuth();
+  const mounted = useMounted();
+  useRouteGuard({ requiredRole: 'individual' });
+
   const [loading, setLoading] = useState(true);
   const [granting, setGranting] = useState(false);
   const [permissions, setPermissions] = useState<AccessPermission[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
 
-  // Estado de búsqueda del modal
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HealthCenterSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -55,27 +76,12 @@ export default function AccessesPage() {
   });
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    // Only redirect after initialization is complete
-    if (isInitializing) return;
-
-    if (!isAuthenticated || currentUser?.role !== 'individual') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router, isInitializing]);
-
-  useEffect(() => {
     const loadPermissions = async () => {
       if (!currentUser?.id) return;
-
       setLoading(true);
       try {
         const grants = await getMyGrants();
-        const perms = grants.map(grantToAccessPermission);
-        setPermissions(perms);
+        setPermissions(grants.map(grantToAccessPermission));
       } catch (error) {
         console.error('Error loading permissions:', error);
         toast.error('Error al cargar los permisos');
@@ -83,7 +89,6 @@ export default function AccessesPage() {
         setLoading(false);
       }
     };
-
     loadPermissions();
   }, [currentUser]);
 
@@ -97,73 +102,39 @@ export default function AccessesPage() {
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const results = await searchHealthCenters(searchQuery.trim());
-        setSearchResults(results);
+        setSearchResults(await searchHealthCenters(searchQuery.trim()));
       } catch {
         setSearchResults([]);
       } finally {
         setSearching(false);
       }
     }, 400);
-
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [searchQuery]);
-
-  const sidebarItems = [
-    {
-      href: '/dashboard/patient',
-      label: 'Mi Historial',
-      icon: <FileText className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/patient/add-record',
-      label: 'Agregar Registro',
-      icon: <Plus className="w-5 h-5" />,
-    },
-    {
-      href: '/dashboard/patient/accesses',
-      label: 'Accesos',
-      icon: <Lock className="w-5 h-5" />,
-      active: true,
-    },
-    {
-      href: '/dashboard/patient/profile',
-      label: 'Perfil',
-      icon: <BarChart3 className="w-5 h-5" />,
-    },
-  ];
 
   const handleGrantAccess = async () => {
     if (!selectedCenter) {
       toast.error('Selecciona un centro de salud');
       return;
     }
-
     setGranting(true);
     try {
       const durationSeconds = formData.durationDays * 24 * 60 * 60;
 
-      // 1. Otorgar en backend
       await apiGrantAccess({
         centerWallet: selectedCenter.wallet,
         permission: formData.permission,
         durationSeconds,
       });
 
-      // 2. Otorgar en Soroban (firma con Freighter)
       try {
         if (currentUser?.wallet) {
-          const txHash = await sorobanGrantAccess(
-            currentUser.wallet,
-            selectedCenter.wallet,
-            durationSeconds
-          );
+          await sorobanGrantAccess(currentUser.wallet, selectedCenter.wallet, durationSeconds);
         }
       } catch (sorobanError) {
         console.warn('Soroban grant failed (puede ser que el usuario canceló):', sorobanError);
-        // No bloqueamos si falla Soroban
       }
 
       toast.success(`Acceso otorgado a ${selectedCenter.name}`);
@@ -173,85 +144,74 @@ export default function AccessesPage() {
       setSelectedCenter(null);
       setOpenDialog(false);
 
-      // Refresh permissions
       const grants = await getMyGrants();
-      const perms = grants.map(grantToAccessPermission);
-      setPermissions(perms);
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Error al otorgar acceso');
+      setPermissions(grants.map(grantToAccessPermission));
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      toast.error(axiosError.response?.data?.error || 'Error al otorgar acceso');
       console.error(error);
     } finally {
       setGranting(false);
     }
   };
 
-  const handleRevokeAccess = async (healthCenterId: string, centerName: string) => {
+  const handleRevokeAccess = async (healthCenterWallet: string, centerName: string) => {
     try {
-      // 1. Revocar en backend
-      await apiRevokeAccess({ centerWallet: healthCenterId });
+      await apiRevokeAccess({ centerWallet: healthCenterWallet });
 
-      // 2. Revocar en Soroban (firma con Freighter)
       try {
         if (currentUser?.wallet) {
-          const txHash = await sorobanRevokeAccess(currentUser.wallet, healthCenterId);
+          await sorobanRevokeAccess(currentUser.wallet, healthCenterWallet);
         }
       } catch (sorobanError) {
         console.warn('Soroban revoke failed:', sorobanError);
       }
 
       toast.success(`Acceso revocado a ${centerName}`);
-
-      // Refresh permissions
       const grants = await getMyGrants();
-      const perms = grants.map(grantToAccessPermission);
-      setPermissions(perms);
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Error al revocar acceso');
+      setPermissions(grants.map(grantToAccessPermission));
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      toast.error(axiosError.response?.data?.error || 'Error al revocar acceso');
       console.error(error);
     }
   };
 
-  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
-    return null;
-  }
+  if (!mounted || isInitializing || !currentUser) return null;
 
   if (loading) {
     return (
-      <DashboardLayout
-        title="Administrar Accesos"
-        sidebar={<SidebarNav items={sidebarItems} />}
-      >
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+      <DashboardLayout navItems={PATIENT_NAV_ITEMS}>
+        <SkeletonCardList count={3} />
       </DashboardLayout>
     );
   }
 
   return (
-    <DashboardLayout
-      title="Administrar Accesos"
-      sidebar={<SidebarNav items={sidebarItems} />}
-    >
+    <DashboardLayout navItems={PATIENT_NAV_ITEMS}>
       <div className="space-y-6">
+        {/* Page header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Mis Accesos</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl font-bold tracking-tight">Mis Accesos</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
               Administra quién puede acceder a tu historial clínico
             </p>
           </div>
-          <Dialog open={openDialog} onOpenChange={(open) => {
-            setOpenDialog(open);
-            if (!open) {
-              setSearchQuery('');
-              setSearchResults([]);
-              setSelectedCenter(null);
-              setFormData({ permission: 'view', durationDays: 0 });
-            }
-          }}>
+          <Dialog
+            open={openDialog}
+            onOpenChange={(open) => {
+              setOpenDialog(open);
+              if (!open) {
+                setSearchQuery('');
+                setSearchResults([]);
+                setSelectedCenter(null);
+                setFormData({ permission: 'view', durationDays: 0 });
+              }
+            }}
+          >
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button size="sm" className="gap-2">
                 <Plus className="w-4 h-4" />
                 Otorgar Acceso
               </Button>
@@ -285,14 +245,13 @@ export default function AccessesPage() {
                     )}
                   </div>
 
-                  {/* Search results */}
                   {!selectedCenter && searchResults.length > 0 && (
-                    <div className="border hover:border-primary hover:bg-[#CCDDEB] rounded-md divide-y max-h-48 overflow-y-auto">
+                    <div className="border border-border rounded-lg divide-y divide-border max-h-48 overflow-y-auto">
                       {searchResults.map((center) => (
                         <button
                           key={center.wallet}
                           type="button"
-                          className="w-full flex items-center gap-3 px-3 py-2 text-left cursor-pointer"
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted transition-colors"
                           onClick={() => {
                             setSelectedCenter(center);
                             setSearchResults([]);
@@ -310,11 +269,10 @@ export default function AccessesPage() {
                     </div>
                   )}
 
-                  {/* Selected center */}
                   {selectedCenter && (
-                    <div className="flex items-center justify-between bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md px-3 py-2">
+                    <div className="flex items-center justify-between bg-secondary/8 border border-secondary/25 rounded-lg px-3 py-2.5">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-secondary shrink-0" />
                         <div>
                           <p className="text-sm font-medium">{selectedCenter.name}</p>
                           <p className="text-xs text-muted-foreground">NIT: {selectedCenter.nit}</p>
@@ -322,8 +280,9 @@ export default function AccessesPage() {
                       </div>
                       <Button
                         type="button"
+                        variant="ghost"
                         size="sm"
-                        className="text-muted-foreground h-auto py-1 px-2 bg-gray-200 hover:bg-gray-200 hover:scale-105 cursor-pointer"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                         onClick={() => {
                           setSelectedCenter(null);
                           setSearchQuery('');
@@ -335,7 +294,7 @@ export default function AccessesPage() {
                   )}
 
                   {!selectedCenter && searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       No se encontraron centros de salud con ese nombre o NIT.
                     </p>
                   )}
@@ -353,9 +312,7 @@ export default function AccessesPage() {
                       setFormData({ ...formData, durationDays: parseInt(e.target.value) || 0 })
                     }
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Deja en 0 para acceso permanente
-                  </p>
+                  <p className="text-xs text-muted-foreground">Deja en 0 para acceso permanente</p>
                 </div>
 
                 <div className="space-y-2">
@@ -363,28 +320,20 @@ export default function AccessesPage() {
                   <Select
                     value={formData.permission}
                     onValueChange={(value) =>
-                      setFormData({
-                        ...formData,
-                        permission: value as 'view' | 'add',
-                      })
+                      setFormData({ ...formData, permission: value as 'view' | 'add' })
                     }
                   >
                     <SelectTrigger id="permission">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="view">
-                        Solo lectura (Ver historial)
-                      </SelectItem>
-                      <SelectItem value="add">
-                        Lectura y escritura (Ver y agregar registros)
-                      </SelectItem>
+                      <SelectItem value="view">Solo lectura (Ver historial)</SelectItem>
+                      <SelectItem value="add">Lectura y escritura (Ver y agregar registros)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg text-sm">
-                  <p className="font-semibold mb-1">Tipo de acceso:</p>
+                <div className="rounded-lg bg-primary/5 border border-primary/15 p-3 text-sm">
                   <p>
                     {formData.permission === 'view'
                       ? 'El centro podrá ver tu historial completo pero no podrá agregar nuevos registros.'
@@ -394,14 +343,9 @@ export default function AccessesPage() {
               </div>
 
               <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setOpenDialog(false)}
-                  disabled={granting}
-                >
+                <Button variant="outline" onClick={() => setOpenDialog(false)} disabled={granting}>
                   Cancelar
                 </Button>
-
                 <Button onClick={handleGrantAccess} disabled={granting || !selectedCenter}>
                   {granting ? (
                     <>
@@ -417,110 +361,81 @@ export default function AccessesPage() {
           </Dialog>
         </div>
 
-        {/* Active Accesses */}
-        <div>
-          <h2 className="text-xl font-bold mb-4">Accesos Activos</h2>
-          {permissions.length === 0 ? (
-            <Card>
-              <CardContent className="pt-12 pb-12 text-center">
-                <Eye className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">Sin Accesos Otorgados</h3>
-                <p className="text-muted-foreground mb-6">
-                  Aún no has otorgado acceso a tu historial a ningún centro de salud
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {permissions.map((perm) => (
-                <Card key={perm.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg mb-1">
-                          {perm.healthCenterName}
-                        </h3>
-                        <div className="space-y-1 text-sm text-muted-foreground">
-                          <p>
-                            Tipo de acceso:{' '}
-                            <span className="font-medium text-foreground">
-                              {perm.permission === 'view'
-                                ? 'Solo lectura'
-                                : 'Lectura y escritura'}
-                            </span>
-                          </p>
-                          <p>
-                            Otorgado:{' '}
-                            {formatDistanceToNow(
-                              new Date(perm.grantedAt),
-                              {
-                                addSuffix: true,
-                                locale: es,
-                              }
-                            )}
-                          </p>
-                          {perm.expiresAt && (
-                            <p>
-                              Expira:{' '}
-                              {formatDistanceToNow(
-                                new Date(perm.expiresAt),
-                                {
-                                  addSuffix: true,
-                                  locale: es,
-                                }
-                              )}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="mt-3 pt-3 border-t border-border">
-                          <span className="inline-block px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-900">
-                            Activo
-                          </span>
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleRevokeAccess(perm.healthCenterWallet, perm.healthCenterName)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+        {/* Accesses list */}
+        {permissions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-card p-14 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/8 flex items-center justify-center mx-auto mb-4">
+              <Eye className="w-6 h-6 text-primary/60" />
             </div>
-          )}
-        </div>
-
-        {/* Information */}
-        <Card className="border-accent/20 bg-accent/5">
-          <CardHeader>
-            <CardTitle>Cómo Funciona la Gestión de Accesos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p>
-              Tienes control total sobre quién puede acceder a tu información médica. Cada acceso otorgado queda registrado en blockchain.
+            <h3 className="text-base font-semibold mb-1">Sin accesos otorgados</h3>
+            <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+              Aún no has otorgado acceso a tu historial a ningún centro de salud.
             </p>
-            <ul className="space-y-2 text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Puedes otorgar permisos de lectura (solo ver) o lectura-escritura (ver y agregar)
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Cada acceso deja una auditoría completa
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Puedes revocar acceso en cualquier momento
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-accent mt-1"><Dot /></span>
-                Los permisos pueden tener fecha de expiración automática
-              </li>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {permissions.map((perm) => (
+              <div
+                key={perm.id}
+                className="flex items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-primary/8 flex items-center justify-center shrink-0">
+                    <Building2 className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">{perm.healthCenterName}</p>
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                      <span>
+                        {perm.permission === 'view' ? 'Solo lectura' : 'Lectura y escritura'}
+                      </span>
+                      <span>
+                        Otorgado{' '}
+                        {formatDistanceToNow(new Date(perm.grantedAt), {
+                          addSuffix: true,
+                          locale: es,
+                        })}
+                      </span>
+                      {perm.expiresAt && (
+                        <span>
+                          Expira {formatDistanceToNow(new Date(perm.expiresAt), { addSuffix: true, locale: es })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge className="bg-secondary/15 text-secondary border-secondary/25 hover:bg-secondary/20">
+                    Activo
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-8 h-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/5"
+                    onClick={() => handleRevokeAccess(perm.healthCenterWallet, perm.healthCenterName)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Info card */}
+        <Card className="border-primary/15 bg-primary/3">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary" />
+              Gestión de Accesos
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5 text-xs text-muted-foreground">
+              <li>Puedes otorgar permisos de lectura o lectura-escritura</li>
+              <li>Cada acceso queda registrado en blockchain como auditoría</li>
+              <li>Puedes revocar acceso en cualquier momento</li>
+              <li>Los permisos pueden tener fecha de expiración automática</li>
             </ul>
           </CardContent>
         </Card>

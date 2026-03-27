@@ -1,47 +1,39 @@
 'use client';
 
-import { useAuth } from '@/lib/contexts/auth-context';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { DashboardLayout, SidebarNav } from '@/components/dashboard-layout';
+import { useState } from 'react';
+import { DashboardLayout } from '@/components/dashboard-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Plus, Lock, BarChart3, Copy, CheckCircle2, Pencil, X, Check, Loader2, SquareUserRound } from 'lucide-react';
-import { toast } from 'sonner';
+import { useAuth } from '@/lib/contexts/auth-context';
+import { useMounted } from '@/lib/hooks/use-mounted';
+import { useRouteGuard } from '@/lib/hooks/use-route-guard';
+import { PATIENT_NAV_ITEMS } from '@/lib/constants/navigation';
 import { updateProfile } from '@/lib/api/identity';
+import {
+  Copy,
+  CheckCircle2,
+  Pencil,
+  X,
+  Check,
+  Loader2,
+  SquareUserRound,
+} from 'lucide-react';
+import { toast } from 'sonner';
 
 type EditableField = 'name' | 'email';
 
 export default function ProfilePage() {
-  const { isAuthenticated, currentUser, isInitializing, updateUser } = useAuth();
-  const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const { currentUser, isInitializing, updateUser } = useAuth();
+  const mounted = useMounted();
+  useRouteGuard({ requiredRole: 'individual' });
+
   const [copiedId, setCopiedId] = useState(false);
   const [copiedWallet, setCopiedWallet] = useState(false);
-
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isInitializing) return;
-    if (!isAuthenticated || currentUser?.role !== 'individual') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, currentUser, router, isInitializing]);
-
-  const sidebarItems = [
-    { href: '/dashboard/patient', label: 'Mi Historial', icon: <FileText className="w-5 h-5" /> },
-    { href: '/dashboard/patient/add-record', label: 'Agregar Registro', icon: <Plus className="w-5 h-5" /> },
-    { href: '/dashboard/patient/accesses', label: 'Accesos', icon: <Lock className="w-5 h-5" /> },
-    { href: '/dashboard/patient/profile', label: 'Perfil', icon: <BarChart3 className="w-5 h-5" />, active: true },
-  ];
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -56,10 +48,7 @@ export default function ProfilePage() {
     setEditValue(currentUser?.[field] || '');
   };
 
-  const cancelEdit = () => {
-    setEditing(null);
-    setEditValue('');
-  };
+  const cancelEdit = () => { setEditing(null); setEditValue(''); };
 
   const saveEdit = async () => {
     if (!editing) return;
@@ -69,8 +58,9 @@ export default function ProfilePage() {
       updateUser({ [editing]: editValue });
       toast.success('Perfil actualizado');
       setEditing(null);
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Error al actualizar el perfil');
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      toast.error(axiosError.response?.data?.error || 'Error al actualizar el perfil');
     } finally {
       setSaving(false);
     }
@@ -81,16 +71,14 @@ export default function ProfilePage() {
     if (e.key === 'Escape') cancelEdit();
   };
 
-  if (!mounted || isInitializing || !isAuthenticated || !currentUser) {
-    return null;
-  }
+  if (!mounted || isInitializing || !currentUser) return null;
 
   return (
-    <DashboardLayout title="Mi Perfil" sidebar={<SidebarNav items={sidebarItems} />}>
+    <DashboardLayout navItems={PATIENT_NAV_ITEMS}>
       <div className="space-y-6 max-w-2xl">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Mi Perfil</h1>
-          <p className="text-muted-foreground">Información de tu cuenta en la plataforma</p>
+          <h1 className="text-2xl font-bold tracking-tight">Mi Perfil</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Información de tu cuenta en la plataforma</p>
         </div>
 
         <Card>
@@ -99,127 +87,122 @@ export default function ProfilePage() {
               <SquareUserRound className="w-5 h-5" />
               Información Personal
             </CardTitle>
-            <CardDescription>
-              Haz clic en el ícono para editar nombre o email
-            </CardDescription>
+            <CardDescription>Haz clic en el ícono para editar nombre o email</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Nombre */}
               <div>
-                <label className="text-sm font-medium">Nombre Completo</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nombre Completo</label>
                 {editing === 'name' ? (
-                  <div className="flex items-center gap-1 mt-1">
+                  <div className="flex items-center gap-1 mt-1.5">
                     <Input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)} onKeyDown={handleKeyDown} className="h-8 text-sm" />
-                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 cursor-pointer bg-transparent hover:bg-transparent hover:border hover:border-green-600" onClick={saveEdit} disabled={saving}>
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4 text-green-600" />}
+                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={saveEdit} disabled={saving}>
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4 text-secondary" />}
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 cursor-pointer bg-transparent hover:bg-transparent hover:border hover:border-destructive" onClick={cancelEdit} disabled={saving}>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={cancelEdit} disabled={saving}>
                       <X className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-sm text-muted-foreground">{currentUser.name}</p>
-                    <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground" onClick={() => startEdit('name')}>
-                      <Pencil className="w-3 h-3 text-gray-300" />
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <p className="text-sm">{currentUser.name}</p>
+                    <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => startEdit('name')}>
+                      <Pencil className="w-3 h-3" />
                     </Button>
                   </div>
                 )}
               </div>
 
-              {/* Wallet (read-only) */}
+              {/* Wallet */}
               <div>
-                <label className="text-sm font-medium">Wallet Stellar Id</label>
-                <p className="text-sm font-mono mt-1 break-all text-muted-foreground">{currentUser.wallet}</p>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Wallet Stellar</label>
+                <p className="text-xs font-mono mt-1.5 break-all text-muted-foreground">{currentUser.wallet}</p>
               </div>
 
-              {/* Rol (read-only) */}
+              {/* Rol */}
               <div>
-                <label className="text-sm font-medium">Rol</label>
-                <div className="mt-1"><Badge variant="secondary">Paciente</Badge></div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Rol</label>
+                <div className="mt-1.5"><Badge variant="secondary">Paciente</Badge></div>
               </div>
 
               {/* Email */}
               <div>
-                <label className="text-sm font-medium">Email</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</label>
                 {editing === 'email' ? (
-                  <div className="flex items-center gap-1 mt-1">
+                  <div className="flex items-center gap-1 mt-1.5">
                     <Input autoFocus type="email" value={editValue} onChange={(e) => setEditValue(e.target.value)} onKeyDown={handleKeyDown} className="h-8 text-sm" />
-                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 cursor-pointer bg-transparent hover:bg-transparent hover:border hover:border-green-600" onClick={saveEdit} disabled={saving}>
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4 text-green-600" />}
+                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={saveEdit} disabled={saving}>
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4 text-secondary" />}
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 cursor-pointer bg-transparent hover:bg-transparent hover:border hover:border-destructive" onClick={cancelEdit} disabled={saving}>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={cancelEdit} disabled={saving}>
                       <X className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1.5">
                     <p className="text-sm text-muted-foreground">{currentUser.email || 'No configurado'}</p>
-                    <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground" onClick={() => startEdit('email')}>
-                      <Pencil className="w-3 h-3 text-gray-300" />
+                    <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => startEdit('email')}>
+                      <Pencil className="w-3 h-3" />
                     </Button>
                   </div>
                 )}
               </div>
-
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Información de Blockchain</CardTitle>
+            <CardTitle className="text-base">Información de Blockchain</CardTitle>
             <CardDescription>Datos de tu wallet y conexión blockchain</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-muted-foreground">User ID</label>
-              <div className="flex items-center gap-2 mt-1">
-                <code className="flex-1 px-3 py-2 rounded bg-muted text-sm font-mono break-all">{currentUser.id}</code>
-                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(currentUser.id, 'id')}>
-                  {copiedId ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">User ID</label>
+              <div className="flex items-center gap-2 mt-1.5">
+                <code className="flex-1 px-3 py-2 rounded-lg bg-muted text-xs font-mono break-all">{currentUser.id}</code>
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => copyToClipboard(currentUser.id, 'id')}>
+                  {copiedId ? <CheckCircle2 className="w-4 h-4 text-secondary" /> : <Copy className="w-4 h-4" />}
                 </Button>
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Wallet ID</label>
-              <div className="flex items-center gap-2 mt-1">
-                <code className="flex-1 min-w-0 px-3 py-2 rounded bg-muted text-sm font-mono break-all">{currentUser.wallet}</code>
-                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(currentUser.wallet, 'wallet')}>
-                  {copiedWallet ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Wallet ID</label>
+              <div className="flex items-center gap-2 mt-1.5">
+                <code className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-muted text-xs font-mono break-all">{currentUser.wallet}</code>
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => copyToClipboard(currentUser.wallet, 'wallet')}>
+                  {copiedWallet ? <CheckCircle2 className="w-4 h-4 text-secondary" /> : <Copy className="w-4 h-4" />}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Esta es tu wallet address de freighter</p>
+              <p className="text-xs text-muted-foreground mt-1">Tu dirección de wallet Freighter en Stellar</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-accent/20 bg-accent/5">
-          <CardHeader>
-            <CardTitle>Seguridad y Privacidad</CardTitle>
+        <Card className="border-primary/15 bg-primary/3">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">Seguridad y Privacidad</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3 text-sm">
               {[
-                { title: 'Datos Encriptados', desc: 'Tu información está almacenada localmente y protegida' },
+                { title: 'Datos Encriptados', desc: 'Tu información está protegida con criptografía de clave pública' },
                 { title: 'Hash Verificable', desc: 'Cada registro tiene un hash SHA-256 único e inmodificable' },
                 { title: 'Control Total', desc: 'Solo tú controlas quién accede a tu información' },
                 { title: 'Auditoría Completa', desc: 'Todos los accesos quedan registrados en blockchain' },
               ].map(({ title, desc }) => (
                 <div key={title} className="flex items-start gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-secondary shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-medium">{title}</p>
-                    <p className="text-muted-foreground">{desc}</p>
+                    <p className="font-medium text-sm">{title}</p>
+                    <p className="text-xs text-muted-foreground">{desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
-
       </div>
     </DashboardLayout>
   );
